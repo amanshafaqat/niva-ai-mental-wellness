@@ -1,0 +1,6 @@
+{
+  "name": "NIVA - AI Mental Wellness Companion",
+  "description": "Privacy-conscious AI mental wellness companion foundation (Phase 1): Next.js & NestJS monorepo, Prisma/PostgreSQL architecture, Google OAuth, RBAC, and AI provider abstraction.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

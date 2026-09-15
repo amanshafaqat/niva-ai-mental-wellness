@@ -1,0 +1,131 @@
+// ==============================================================================
+// NIVA - Privacy-Conscious AI Mental Wellness Companion
+// Database Architecture - Prisma Schema (Phase 1 Foundation)
+// ==============================================================================
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// ------------------------------------------------------------------------------
+// Core User Roles
+// ------------------------------------------------------------------------------
+enum Role {
+  USER       // Primary end-user seeking wellness support
+  GUARDIAN   // Trusted contact with explicit consent-based access
+  ADMIN      // Platform operational & compliance administrator
+}
+
+// ------------------------------------------------------------------------------
+// User Model
+// ------------------------------------------------------------------------------
+model User {
+  id            String    @id @default(uuid())
+  email         String    @unique
+  emailVerified DateTime?
+  name          String?
+  avatarUrl     String?
+  
+  // Security & Role-Based Access Control
+  role          Role      @default(USER)
+  isActive      Boolean   @default(true)
+  
+  // Timestamps
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  lastLoginAt   DateTime?
+
+  // Relations: Authentication & Session
+  accounts      Account[]
+  sessions      Session[]
+  auditLogs     AuditLog[]
+
+  // --------------------------------------------------------------------------
+  // Architectural Placeholders for Future Phases:
+  // Designed so Phase 2 and beyond can extend without breaking User references.
+  // - WellnessProfile (user baseline, emotional trends, preferences)
+  // - Conversations (strictly access-controlled dialogue history)
+  // - VoiceSessions (ephemeral realtime voice metrics)
+  // - GuardianRelationships (bidirectional consent-gated links)
+  // - ConsentRecords (explicit, revocable user consents)
+  // - SafetyEvents (audit-logged crisis/safety interventions)
+  // --------------------------------------------------------------------------
+
+  @@index([email])
+  @@index([role])
+  @@map("users")
+}
+
+// ------------------------------------------------------------------------------
+// Account Model (Federated Identity & Google OAuth)
+// ------------------------------------------------------------------------------
+model Account {
+  id                 String    @id @default(uuid())
+  userId             String
+  type               String    // e.g. "oauth"
+  provider           String    // e.g. "google"
+  providerAccountId  String    // Google 'sub' claim
+  refreshToken       String?   @db.Text
+  accessToken        String?   @db.Text
+  expiresAt          Int?
+  tokenType          String?
+  scope              String?
+  idToken            String?   @db.Text
+  sessionState       String?
+  
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  user               User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+  @@map("accounts")
+}
+
+// ------------------------------------------------------------------------------
+// Session Model (Server-side Session State)
+// ------------------------------------------------------------------------------
+model Session {
+  id           String    @id @default(uuid())
+  sessionToken String    @unique
+  userId       String
+  expires      DateTime
+  ipAddress    String?
+  userAgent    String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([sessionToken])
+  @@map("sessions")
+}
+
+// ------------------------------------------------------------------------------
+// Audit Log Model (Security & Governance Trail)
+// ------------------------------------------------------------------------------
+model AuditLog {
+  id          String    @id @default(uuid())
+  userId      String?
+  action      String    // e.g. "USER_LOGIN_SUCCESS", "ROLE_VERIFIED", "RBAC_ACCESS_DENIED"
+  entityType  String?   // e.g. "User", "Session", "Consent"
+  entityId    String?   // Targeted entity ID
+  metadata    Json?     // Structured context (sanitized, non-sensitive)
+  ipAddress   String?
+  userAgent   String?
+  timestamp   DateTime  @default(now())
+
+  user        User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([action])
+  @@index([timestamp])
+  @@map("audit_logs")
+}
