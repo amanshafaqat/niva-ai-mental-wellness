@@ -50,6 +50,9 @@ model User {
   conversations    Conversation[]
   preferences      UserPreferences?
 
+  // Phase 4: Realtime Voice Sessions
+  voiceSessions    VoiceSession[]
+
   @@index([email])
   @@index([role])
   @@index([status])
@@ -84,13 +87,37 @@ model Conversation {
   updatedAt DateTime              @updatedAt
   endedAt   DateTime?
 
-  user      User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
-  messages  ConversationMessage[]
+  user          User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages      ConversationMessage[]
+  voiceSessions VoiceSession[]
 
   @@index([userId])
   @@index([userId, status])
   @@index([createdAt])
   @@map("conversations")
+}
+
+// ------------------------------------------------------------------------------
+// Voice Session Model (Phase 4 Realtime Voice Engine)
+// ------------------------------------------------------------------------------
+model VoiceSession {
+  id              String       @id @default(uuid())
+  userId          String
+  conversationId  String
+  status          String       @default("INITIALIZING") // INITIALIZING, ACTIVE, ENDED, FAILED
+  startedAt       DateTime     @default(now())
+  endedAt         DateTime?
+  durationSeconds Int          @default(0)
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  user            User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  conversation    Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([conversationId])
+  @@index([status])
+  @@map("voice_sessions")
 }
 
 // ------------------------------------------------------------------------------

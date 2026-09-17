@@ -14,6 +14,7 @@ import {
   Shield,
   Heart,
   Volume2,
+  Mic,
 } from 'lucide-react';
 import {
   ConversationSummaryDto,
@@ -23,6 +24,7 @@ import {
   ResponseStyle,
   ConversationPreference,
 } from '@shared/types/conversation';
+import { VoiceSessionScreen } from './VoiceSessionScreen';
 
 export const WellnessChatSession: React.FC = () => {
   const [conversations, setConversations] = useState<ConversationSummaryDto[]>([]);
@@ -32,6 +34,7 @@ export const WellnessChatSession: React.FC = () => {
   const [initialLoading, setInitialLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showPreferences, setShowPreferences] = useState(false);
+  const [showVoiceOverlay, setShowVoiceOverlay] = useState(false);
   const [preferences, setPreferences] = useState<UserPreferencesDto>({
     responseStyle: 'SHORT',
     conversationPreference: 'LISTEN_AND_RESPOND',
@@ -279,6 +282,19 @@ export const WellnessChatSession: React.FC = () => {
         </div>
 
         <div className="flex flex-wrap items-center gap-2.5 w-full sm:w-auto">
+          {activeSession && activeSession.status === 'ACTIVE' && (
+            <button
+              id="start-voice-session-button"
+              onClick={() => setShowVoiceOverlay(true)}
+              disabled={loading}
+              className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 rounded-xl bg-teal-700 px-4 py-2.5 text-xs font-semibold text-white hover:bg-teal-800 transition shadow-xs"
+              title="Start Realtime Voice-to-Voice Conversation with NIVA"
+            >
+              <Mic className="h-4 w-4" />
+              <span>Voice Session</span>
+            </button>
+          )}
+
           <button
             id="start-new-session-button"
             onClick={startNewSession}
@@ -603,6 +619,19 @@ export const WellnessChatSession: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* Realtime Voice Session Overlay Modal (Phase 4) */}
+      {showVoiceOverlay && activeSession && (
+        <VoiceSessionScreen
+          conversationId={activeSession.id}
+          conversationTitle={activeSession.title}
+          onClose={() => setShowVoiceOverlay(false)}
+          onEndSession={() => {
+            endCurrentSession();
+            setShowVoiceOverlay(false);
+          }}
+        />
+      )}
     </div>
   );
 };

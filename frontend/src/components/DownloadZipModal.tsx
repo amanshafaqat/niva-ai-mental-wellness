@@ -36,7 +36,7 @@ export const DownloadZipModal: React.FC<DownloadZipModalProps> = ({ isOpen, onCl
             </div>
             <div>
               <h3 id="download-modal-title" className="text-xl font-semibold text-stone-900">
-                Download NIVA Phase 2 Project
+                Download NIVA Phase 4 Project
               </h3>
               <p className="text-xs text-stone-600">Complete, self-contained monorepo archive</p>
             </div>
@@ -53,16 +53,24 @@ export const DownloadZipModal: React.FC<DownloadZipModalProps> = ({ isOpen, onCl
         <div className="mt-5 rounded-xl border border-stone-200 bg-stone-50/70 p-4 text-xs text-stone-700 space-y-2">
           <div className="font-semibold text-stone-900 flex items-center gap-1.5">
             <Package className="h-4 w-4 text-emerald-800" />
-            <span>Phase 2 Archive Contents:</span>
+            <span>Phase 4 Archive Contents:</span>
           </div>
           <div className="grid grid-cols-2 gap-2 pt-1 font-mono text-[11px]">
             <div className="flex items-center gap-1.5">
               <CheckCircle2 className="h-3.5 w-3.5 text-emerald-800 shrink-0" />
-              <span>Google OAuth 2.0 Auth</span>
+              <span>Realtime Voice (Gemini Live)</span>
             </div>
             <div className="flex items-center gap-1.5">
               <CheckCircle2 className="h-3.5 w-3.5 text-emerald-800 shrink-0" />
-              <span>HttpOnly Cookie Sessions</span>
+              <span>Native Audio & Interruption</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <CheckCircle2 className="h-3.5 w-3.5 text-emerald-800 shrink-0" />
+              <span>Text AI Wellness Engine</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <CheckCircle2 className="h-3.5 w-3.5 text-emerald-800 shrink-0" />
+              <span>Google OAuth & HttpOnly</span>
             </div>
             <div className="flex items-center gap-1.5">
               <CheckCircle2 className="h-3.5 w-3.5 text-emerald-800 shrink-0" />
@@ -78,15 +86,7 @@ export const DownloadZipModal: React.FC<DownloadZipModalProps> = ({ isOpen, onCl
             </div>
             <div className="flex items-center gap-1.5">
               <CheckCircle2 className="h-3.5 w-3.5 text-emerald-800 shrink-0" />
-              <span>NestJS Backend & Guards</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <CheckCircle2 className="h-3.5 w-3.5 text-emerald-800 shrink-0" />
-              <span>Next.js/React Frontend</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <CheckCircle2 className="h-3.5 w-3.5 text-emerald-800 shrink-0" />
-              <span>Decoupled AI Engine</span>
+              <span>Voice Session Lifecycle</span>
             </div>
           </div>
         </div>
@@ -119,7 +119,7 @@ export const DownloadZipModal: React.FC<DownloadZipModalProps> = ({ isOpen, onCl
             ) : (
               <>
                 <Download className="h-4 w-4" />
-                <span>Download niva-phase-2.zip</span>
+                <span>Download niva-phase-4.zip</span>
               </>
             )}
           </button>

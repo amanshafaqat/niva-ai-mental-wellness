@@ -1,7 +1,9 @@
 import express from 'express';
+import http from 'http';
 import path from 'path';
 import crypto from 'crypto';
 import cookieParser from 'cookie-parser';
+import { WebSocketServer } from 'ws';
 import { OAuth2Client } from 'google-auth-library';
 import { createServer as createViteServer } from 'vite';
 import { generateProjectZipBuffer } from './scripts/package-project';
@@ -17,6 +19,13 @@ import {
   generateNivaReply,
   InMemoryConversation,
 } from './src/services/conversation-engine';
+import {
+  voiceSessionsStore,
+  voiceUsageStore,
+  createVoiceTicket,
+  checkVoiceTicketRateLimit,
+  setupVoiceWebSocketServer,
+} from './src/services/voice-engine';
 import { UserPreferencesDto } from './shared/types/conversation';
 
 const app = express();
@@ -135,7 +144,7 @@ function getSessionFromRequest(req: express.Request): AuthSession | null {
 const getHealthResponse = () => ({
   status: 'ok',
   service: 'niva-backend',
-  phase: 'Phase 2 - Authentication, User Identity & RBAC',
+  phase: 'Phase 4 - Realtime Voice-to-Voice AI Agent (Gemini Live)',
   timestamp: new Date().toISOString(),
   uptimeSeconds: Math.floor((Date.now() - START_TIME) / 1000),
   environment: process.env.NODE_ENV || 'development',
@@ -148,6 +157,8 @@ const getHealthResponse = () => ({
     googleAuthReady: Boolean(process.env.GOOGLE_CLIENT_ID),
     googleClientIdConfigured: Boolean(process.env.GOOGLE_CLIENT_ID),
     aiProviderReady: true,
+    realtimeVoiceReady: true,
+    geminiLiveModel: 'gemini-3.8-live',
     auditLoggingEnabled: true,
     httpOnlyCookiesEnabled: true,
   },
@@ -1208,13 +1219,86 @@ app.post('/conversations/:id/end', handleEndConversation);
 app.post('/api/conversations/:id/end', handleEndConversation);
 
 // ==============================================================================
+// 4.6 REALTIME VOICE-TO-VOICE SESSIONS (PHASE 4)
+// ==============================================================================
+
+/**
+ * POST /conversations/:id/voice-ticket
+ * Provisions a short-lived (60s) single-use voice ticket to connect to the /live WebSocket.
+ * Validates session ownership and user rate limits. Permanent GEMINI_API_KEY is NEVER sent.
+ */
+const handleCreateVoiceTicket = async (req: express.Request, res: express.Response) => {
+  const session = getSessionFromRequest(req);
+  if (!session) {
+    return res.status(401).json({
+      success: false,
+      statusCode: 401,
+      errorCode: 'UNAUTHORIZED',
+      message: 'Authentication required for realtime voice session',
+    });
+  }
+
+  const { id } = req.params;
+  const conv = conversationsStore.get(id);
+
+  if (!conv) {
+    return res.status(404).json({
+      success: false,
+      statusCode: 404,
+      message: 'Wellness session not found',
+    });
+  }
+
+  // Strict ownership check
+  if (conv.userId !== session.user.id) {
+    logAuditEvent(
+      AuditAction.RBAC_ACCESS_DENIED,
+      session.user.id,
+      'Conversation',
+      { attemptedId: id, action: 'CREATE_VOICE_TICKET_FORBIDDEN' },
+      req,
+    );
+    return res.status(403).json({
+      success: false,
+      statusCode: 403,
+      errorCode: 'FORBIDDEN',
+      message: 'Access denied. You do not own this wellness session.',
+    });
+  }
+
+  // Check rate limit on ticket creation
+  if (!checkVoiceTicketRateLimit(session.user.id)) {
+    return res.status(429).json({
+      success: false,
+      statusCode: 429,
+      errorCode: 'RATE_LIMIT_EXCEEDED',
+      message: 'Too many voice session connection attempts. Please wait a minute.',
+    });
+  }
+
+  const ticketData = createVoiceTicket(session.user, conv);
+  res.json(ticketData);
+};
+
+app.post('/conversations/:id/voice-ticket', handleCreateVoiceTicket);
+app.post('/api/conversations/:id/voice-ticket', handleCreateVoiceTicket);
+
+/**
+ * GET /api/voice/metrics
+ * Returns aggregated non-sensitive voice usage metrics
+ */
+app.get('/api/voice/metrics', (req, res) => {
+  res.json(voiceUsageStore);
+});
+
+// ==============================================================================
 // 5. DOWNLOAD PROJECT ZIP ENDPOINT
 // ==============================================================================
 app.get('/api/download-zip', async (req, res) => {
   try {
     const zipBuffer = await generateProjectZipBuffer(process.cwd());
     res.setHeader('Content-Type', 'application/zip');
-    res.setHeader('Content-Disposition', 'attachment; filename="niva-phase-3.zip"');
+    res.setHeader('Content-Disposition', 'attachment; filename="niva-phase-4.zip"');
     res.setHeader('Content-Length', zipBuffer.length.toString());
     res.send(zipBuffer);
   } catch (error: any) {
@@ -1229,9 +1313,18 @@ app.get('/api/download-zip', async (req, res) => {
 });
 
 // ==============================================================================
-// 5. VITE MIDDLEWARE & SPA SERVING
+// 6. VITE MIDDLEWARE, WEBSOCKET SETUP & SERVER BOOTSTRAP
 // ==============================================================================
 async function startServer() {
+  const httpServer = http.createServer(app);
+
+  // Mount WebSocket server on /live
+  const wss = new WebSocketServer({
+    server: httpServer,
+    path: '/live',
+  });
+  setupVoiceWebSocketServer(wss);
+
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({
       server: { middlewareMode: true },
@@ -1246,8 +1339,9 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`🌿 NIVA Phase 2 Server running at http://localhost:${PORT}`);
+  httpServer.listen(PORT, '0.0.0.0', () => {
+    console.log(`🌿 NIVA Phase 4 Server running at http://localhost:${PORT}`);
+    console.log(`🎙️ Realtime Voice WebSocket: ws://localhost:${PORT}/live`);
     console.log(`🛡️ Health Check: http://localhost:${PORT}/health`);
     console.log(`📦 Project ZIP: http://localhost:${PORT}/api/download-zip`);
   });

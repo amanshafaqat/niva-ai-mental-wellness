@@ -1,6 +1,6 @@
 /**
- * NIVA Phase 2 Project Packager
- * Generates clean, production-ready niva-phase-2.zip archive
+ * NIVA Phase 4 Project Packager
+ * Generates clean, production-ready niva-phase-4.zip archive
  * Excludes: node_modules, build artifacts, git internals, and secrets.
  */
 
@@ -24,6 +24,8 @@ const EXCLUDED_FILES = new Set([
   '.DS_Store',
   'niva-phase-1.zip',
   'niva-phase-2.zip',
+  'niva-phase-3.zip',
+  'niva-phase-4.zip',
 ]);
 
 function shouldInclude(filePath: string, relativePath: string): boolean {

@@ -1,0 +1,572 @@
+/**
+ * NIVA Dedicated Realtime Voice Experience Component (Phase 4)
+ * Native Audio Voice-to-Voice Powered by Gemini Live API (gemini-3.8-live)
+ *
+ * Core Features:
+ * - Dedicated immersive visual presence (Calm ambient breathing orb)
+ * - Microphone capture @ 16kHz PCM
+ * - Realtime bidirectional WebSocket relay (/live)
+ * - Live state indicators: CONNECTING, LISTENING, SPEAKING, INTERRUPTING, MUTED
+ * - Native audio playback @ 24kHz with instant interruption (barge-in)
+ * - Microphone mute / unmute toggle
+ * - Manual interrupt button & speech barge-in detection
+ * - Direct association with user's wellness session
+ */
+
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import {
+  Mic,
+  MicOff,
+  PhoneOff,
+  Volume2,
+  VolumeX,
+  Sparkles,
+  AlertCircle,
+  Hand,
+  Shield,
+  Radio,
+  Clock,
+  CheckCircle2,
+} from 'lucide-react';
+import {
+  VoiceConnectionState,
+  VoiceSessionStatus,
+  VoiceTicketResponseDto,
+  ClientVoiceMessage,
+  ServerVoiceMessage,
+} from '@shared/types/voice';
+import { floatTo16BitPCMBase64, base64PCMToAudioBuffer } from '@/src/utils/audio-pcm';
+
+interface VoiceSessionScreenProps {
+  conversationId: string;
+  conversationTitle: string;
+  onClose: () => void;
+  onEndSession?: () => void;
+}
+
+export const VoiceSessionScreen: React.FC<VoiceSessionScreenProps> = ({
+  conversationId,
+  conversationTitle,
+  onClose,
+  onEndSession,
+}) => {
+  const [connectionState, setConnectionState] = useState<VoiceConnectionState>('IDLE');
+  const [isMuted, setIsMuted] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [durationSeconds, setDurationSeconds] = useState(0);
+  const [interruptionCount, setInterruptionCount] = useState(0);
+  const [micAudioLevel, setMicAudioLevel] = useState(0);
+  const [speakerAudioLevel, setSpeakerAudioLevel] = useState(0);
+
+  // Audio Context & Stream Refs
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const micStreamRef = useRef<MediaStream | null>(null);
+  const processorNodeRef = useRef<ScriptProcessorNode | null>(null);
+  const micSourceNodeRef = useRef<MediaStreamAudioSourceNode | null>(null);
+  const wsRef = useRef<WebSocket | null>(null);
+  const scheduledAudioSourcesRef = useRef<AudioBufferSourceNode[]>([]);
+  const nextPlaybackTimeRef = useRef<number>(0);
+  const timerIntervalRef = useRef<any>(null);
+  const isMutedRef = useRef(false);
+
+  isMutedRef.current = isMuted;
+
+  // Stop current audio playback queue immediately (barge-in / interruption)
+  const stopAudioPlayback = useCallback(() => {
+    scheduledAudioSourcesRef.current.forEach((source) => {
+      try {
+        source.stop();
+      } catch (err) {
+        // ignore already stopped sources
+      }
+    });
+    scheduledAudioSourcesRef.current = [];
+    if (audioContextRef.current) {
+      nextPlaybackTimeRef.current = audioContextRef.current.currentTime;
+    }
+  }, []);
+
+  // Cleanup all audio resources & WebSockets
+  const cleanupVoiceSession = useCallback(() => {
+    if (timerIntervalRef.current) {
+      clearInterval(timerIntervalRef.current);
+      timerIntervalRef.current = null;
+    }
+
+    stopAudioPlayback();
+
+    if (processorNodeRef.current) {
+      try {
+        processorNodeRef.current.disconnect();
+      } catch (e) {}
+      processorNodeRef.current = null;
+    }
+
+    if (micSourceNodeRef.current) {
+      try {
+        micSourceNodeRef.current.disconnect();
+      } catch (e) {}
+      micSourceNodeRef.current = null;
+    }
+
+    if (micStreamRef.current) {
+      micStreamRef.current.getTracks().forEach((track) => track.stop());
+      micStreamRef.current = null;
+    }
+
+    if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+      try {
+        audioContextRef.current.close();
+      } catch (e) {}
+      audioContextRef.current = null;
+    }
+
+    if (wsRef.current) {
+      try {
+        if (wsRef.current.readyState === WebSocket.OPEN) {
+          wsRef.current.send(JSON.stringify({ type: 'END_SESSION' } as ClientVoiceMessage));
+          wsRef.current.close();
+        }
+      } catch (e) {}
+      wsRef.current = null;
+    }
+  }, [stopAudioPlayback]);
+
+  // Connect and start voice session
+  const startVoiceSession = async () => {
+    setErrorMessage(null);
+    setConnectionState('CONNECTING');
+
+    try {
+      // 1. Request microphone permission
+      let micStream: MediaStream;
+      try {
+        micStream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            channelCount: 1,
+            sampleRate: 16000,
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+          },
+          video: false,
+        });
+        micStreamRef.current = micStream;
+      } catch (micErr: any) {
+        console.error('Microphone permission denied or unavailable:', micErr);
+        setErrorMessage('Microphone access is required for NIVA voice sessions. Please allow microphone permissions.');
+        setConnectionState('ERROR');
+        return;
+      }
+
+      // 2. Obtain short-lived voice ticket from backend
+      const ticketRes = await fetch(`/api/conversations/${conversationId}/voice-ticket`, {
+        method: 'POST',
+        credentials: 'include',
+      });
+
+      if (!ticketRes.ok) {
+        const errorData = await ticketRes.json().catch(() => ({}));
+        throw new Error(errorData.message || 'Failed to authenticate voice session');
+      }
+
+      const ticketData: VoiceTicketResponseDto = await ticketRes.json();
+
+      // 3. Setup Web Audio Context (sampleRate 16000 or default)
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      const audioCtx = new AudioCtx({ sampleRate: 16000 });
+      audioContextRef.current = audioCtx;
+      nextPlaybackTimeRef.current = audioCtx.currentTime;
+
+      // 4. Establish WebSocket connection to backend /live
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const wsUrl = `${protocol}//${window.location.host}/live?ticket=${encodeURIComponent(ticketData.ticket)}`;
+      const ws = new WebSocket(wsUrl);
+      wsRef.current = ws;
+
+      ws.onopen = () => {
+        setConnectionState('CONNECTED');
+        // Start duration counter
+        timerIntervalRef.current = setInterval(() => {
+          setDurationSeconds((sec) => sec + 1);
+        }, 1000);
+
+        // Setup microphone capture processor
+        const micSource = audioCtx.createMediaStreamSource(micStream);
+        micSourceNodeRef.current = micSource;
+
+        // Use ScriptProcessorNode (bufferSize 2048 or 4096) for streaming raw 16kHz PCM chunks
+        const processor = audioCtx.createScriptProcessor(4096, 1, 1);
+        processorNodeRef.current = processor;
+
+        processor.onaudioprocess = (e) => {
+          if (isMutedRef.current || ws.readyState !== WebSocket.OPEN) {
+            setMicAudioLevel(0);
+            return;
+          }
+
+          const inputData = e.inputBuffer.getChannelData(0);
+
+          // Calculate visual RMS audio level
+          let sumSquares = 0;
+          for (let i = 0; i < inputData.length; i++) {
+            sumSquares += inputData[i] * inputData[i];
+          }
+          const rms = Math.sqrt(sumSquares / inputData.length);
+          setMicAudioLevel(Math.min(1, rms * 4));
+
+          // If user speaks noticeably above threshold while NIVA is speaking, trigger barge-in interrupt
+          if (rms > 0.04 && connectionState === 'SPEAKING') {
+            stopAudioPlayback();
+            setInterruptionCount((c) => c + 1);
+            setConnectionState('INTERRUPTING');
+            ws.send(JSON.stringify({ type: 'INTERRUPT' } as ClientVoiceMessage));
+          }
+
+          // Encode to 16-bit linear PCM and send
+          const base64Pcm = floatTo16BitPCMBase64(inputData);
+          ws.send(
+            JSON.stringify({
+              type: 'AUDIO_CHUNK',
+              audio: base64Pcm,
+            } as ClientVoiceMessage),
+          );
+        };
+
+        micSource.connect(processor);
+        processor.connect(audioCtx.destination);
+        setConnectionState('LISTENING');
+      };
+
+      ws.onmessage = async (event) => {
+        try {
+          const msg: ServerVoiceMessage = JSON.parse(event.data);
+
+          if (msg.type === 'CONNECTED') {
+            setConnectionState('LISTENING');
+          } else if (msg.type === 'AUDIO_CHUNK') {
+            setConnectionState('SPEAKING');
+
+            if (audioContextRef.current && msg.audio) {
+              const audioBuffer = base64PCMToAudioBuffer(msg.audio, audioContextRef.current, 24000);
+              const source = audioContextRef.current.createBufferSource();
+              source.buffer = audioBuffer;
+              source.connect(audioContextRef.current.destination);
+
+              const now = audioContextRef.current.currentTime;
+              const startTime = Math.max(now, nextPlaybackTimeRef.current);
+              source.start(startTime);
+              nextPlaybackTimeRef.current = startTime + audioBuffer.duration;
+
+              scheduledAudioSourcesRef.current.push(source);
+              setSpeakerAudioLevel(0.7);
+
+              source.onended = () => {
+                const index = scheduledAudioSourcesRef.current.indexOf(source);
+                if (index > -1) {
+                  scheduledAudioSourcesRef.current.splice(index, 1);
+                }
+                if (scheduledAudioSourcesRef.current.length === 0) {
+                  setSpeakerAudioLevel(0);
+                  setConnectionState('LISTENING');
+                }
+              };
+            }
+          } else if (msg.type === 'INTERRUPTED') {
+            stopAudioPlayback();
+            setInterruptionCount((c) => c + 1);
+            setConnectionState('LISTENING');
+          } else if (msg.type === 'TURN_COMPLETE') {
+            if (scheduledAudioSourcesRef.current.length === 0) {
+              setConnectionState('LISTENING');
+            }
+          } else if (msg.type === 'ERROR') {
+            setErrorMessage(msg.message);
+            if (msg.fatal) {
+              setConnectionState('ERROR');
+              cleanupVoiceSession();
+            }
+          } else if (msg.type === 'SESSION_ENDED') {
+            setConnectionState('ENDED');
+            cleanupVoiceSession();
+          }
+        } catch (parseErr) {
+          console.error('Error handling WebSocket message:', parseErr);
+        }
+      };
+
+      ws.onerror = (err) => {
+        console.error('WebSocket connection error:', err);
+        setErrorMessage("I couldn't connect to NIVA's voice session. Please try again.");
+        setConnectionState('ERROR');
+        cleanupVoiceSession();
+      };
+
+      ws.onclose = () => {
+        if (connectionState !== 'ENDED' && connectionState !== 'ERROR') {
+          setConnectionState('ENDED');
+        }
+        cleanupVoiceSession();
+      };
+    } catch (err: any) {
+      console.error('Failed to start voice session:', err);
+      setErrorMessage(err.message || 'Failed to initialize voice session');
+      setConnectionState('ERROR');
+      cleanupVoiceSession();
+    }
+  };
+
+  useEffect(() => {
+    startVoiceSession();
+    return () => {
+      cleanupVoiceSession();
+    };
+  }, []);
+
+  const handleManualInterrupt = () => {
+    stopAudioPlayback();
+    setInterruptionCount((c) => c + 1);
+    setConnectionState('INTERRUPTING');
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: 'INTERRUPT' } as ClientVoiceMessage));
+    }
+    setTimeout(() => {
+      if (connectionState !== 'ENDED' && connectionState !== 'ERROR') {
+        setConnectionState('LISTENING');
+      }
+    }, 400);
+  };
+
+  const handleToggleMute = () => {
+    setIsMuted((prev) => !prev);
+  };
+
+  const handleEndSession = () => {
+    cleanupVoiceSession();
+    setConnectionState('ENDED');
+    if (onEndSession) {
+      onEndSession();
+    }
+  };
+
+  const formatTime = (totalSeconds: number) => {
+    const mins = Math.floor(totalSeconds / 60);
+    const secs = totalSeconds % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  return (
+    <div
+      id="niva-voice-experience-overlay"
+      className="fixed inset-0 z-50 flex flex-col bg-radial from-stone-900 via-stone-950 to-black text-white selection:bg-emerald-900"
+    >
+      {/* Top Header Bar */}
+      <header className="flex items-center justify-between border-b border-stone-800/80 bg-stone-900/60 backdrop-blur-md px-6 py-4">
+        <div className="flex items-center gap-3">
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-600/30 text-emerald-400 border border-emerald-500/40">
+            <Radio className="h-5 w-5 animate-pulse" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <h1 className="text-base font-semibold tracking-tight text-stone-100">NIVA Voice Presence</h1>
+              <span className="rounded-md border border-emerald-500/40 bg-emerald-950/60 px-2 py-0.5 text-[11px] font-medium text-emerald-300">
+                Native Audio (gemini-3.8-live)
+              </span>
+            </div>
+            <p className="text-xs text-stone-400 truncate max-w-xs sm:max-w-md">
+              Session: {conversationTitle}
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2 rounded-full border border-stone-800 bg-stone-900/80 px-3.5 py-1.5 text-xs text-stone-300">
+            <Clock className="h-3.5 w-3.5 text-emerald-400" />
+            <span className="font-mono">{formatTime(durationSeconds)}</span>
+          </div>
+
+          <button
+            onClick={() => {
+              cleanupVoiceSession();
+              onClose();
+            }}
+            className="rounded-xl border border-stone-800 bg-stone-900/80 px-3 py-1.5 text-xs text-stone-400 hover:text-white hover:bg-stone-800 transition"
+          >
+            Close View
+          </button>
+        </div>
+      </header>
+
+      {/* Main Visual Presence & Animated Voice Orb */}
+      <main className="flex-1 flex flex-col items-center justify-center p-6 text-center select-none relative overflow-hidden">
+        {/* Ambient background glow ring */}
+        <div
+          className={`absolute w-96 h-96 rounded-full blur-3xl pointer-events-none transition-all duration-700 ${
+            connectionState === 'SPEAKING'
+              ? 'bg-emerald-500/20 scale-125'
+              : connectionState === 'LISTENING'
+              ? 'bg-teal-500/15 scale-100'
+              : connectionState === 'INTERRUPTING'
+              ? 'bg-amber-500/20 scale-110'
+              : 'bg-stone-700/10 scale-90'
+          }`}
+        />
+
+        {/* Central Organic Audio Orb */}
+        <div className="relative flex items-center justify-center my-8">
+          {/* Animated concentric ripples */}
+          {connectionState === 'SPEAKING' && (
+            <>
+              <div className="absolute h-48 w-48 rounded-full border border-emerald-500/40 animate-ping opacity-30 pointer-events-none" />
+              <div className="absolute h-60 w-60 rounded-full border border-emerald-400/20 animate-pulse opacity-40 pointer-events-none" />
+            </>
+          )}
+
+          {connectionState === 'LISTENING' && !isMuted && micAudioLevel > 0.05 && (
+            <div
+              className="absolute rounded-full border border-teal-400/40 pointer-events-none transition-all duration-75"
+              style={{
+                width: `${160 + micAudioLevel * 80}px`,
+                height: `${160 + micAudioLevel * 80}px`,
+              }}
+            />
+          )}
+
+          {/* Core Orb Container */}
+          <div
+            className={`relative flex h-36 w-36 sm:h-44 sm:w-44 items-center justify-center rounded-full shadow-2xl transition-all duration-500 ${
+              connectionState === 'SPEAKING'
+                ? 'bg-gradient-to-tr from-emerald-600 via-teal-500 to-emerald-400 shadow-emerald-500/30 scale-105'
+                : connectionState === 'LISTENING'
+                ? isMuted
+                  ? 'bg-gradient-to-tr from-stone-800 to-stone-700 border border-stone-600'
+                  : 'bg-gradient-to-tr from-teal-700 via-emerald-700 to-stone-800 shadow-teal-500/20'
+                : connectionState === 'INTERRUPTING'
+                ? 'bg-gradient-to-tr from-amber-600 to-amber-500 shadow-amber-500/30 scale-95'
+                : connectionState === 'CONNECTING'
+                ? 'bg-gradient-to-tr from-stone-800 to-stone-700 animate-pulse'
+                : 'bg-stone-800 border border-stone-700'
+            }`}
+          >
+            {connectionState === 'SPEAKING' ? (
+              <Volume2 className="h-14 w-14 text-white animate-bounce" />
+            ) : connectionState === 'LISTENING' ? (
+              isMuted ? (
+                <MicOff className="h-12 w-12 text-stone-400" />
+              ) : (
+                <Mic className="h-14 w-14 text-teal-200 animate-pulse" />
+              )
+            ) : connectionState === 'INTERRUPTING' ? (
+              <Hand className="h-12 w-12 text-white animate-pulse" />
+            ) : (
+              <Sparkles className="h-12 w-12 text-stone-400" />
+            )}
+          </div>
+        </div>
+
+        {/* State Label & Guidance */}
+        <div className="space-y-2 max-w-md mx-auto">
+          <div className="inline-flex items-center gap-2 rounded-full border border-stone-800 bg-stone-900/80 px-4 py-1.5 text-xs font-semibold uppercase tracking-wider">
+            <span
+              className={`h-2 w-2 rounded-full ${
+                connectionState === 'SPEAKING'
+                  ? 'bg-emerald-400 animate-pulse'
+                  : connectionState === 'LISTENING'
+                  ? isMuted
+                    ? 'bg-stone-500'
+                    : 'bg-teal-400 animate-ping'
+                  : connectionState === 'INTERRUPTING'
+                  ? 'bg-amber-400'
+                  : connectionState === 'CONNECTING'
+                  ? 'bg-blue-400 animate-spin'
+                  : 'bg-stone-500'
+              }`}
+            />
+            <span className="text-stone-200">
+              {connectionState === 'CONNECTING' && 'Connecting to NIVA...'}
+              {connectionState === 'CONNECTED' && 'Connected'}
+              {connectionState === 'LISTENING' && (isMuted ? 'Microphone Muted' : 'Listening...')}
+              {connectionState === 'SPEAKING' && 'NIVA is Speaking'}
+              {connectionState === 'INTERRUPTING' && 'Yielding to you...'}
+              {connectionState === 'ENDED' && 'Voice Session Ended'}
+              {connectionState === 'ERROR' && 'Connection Issue'}
+            </span>
+          </div>
+
+          <p className="text-sm text-stone-400 leading-relaxed">
+            {connectionState === 'LISTENING' && !isMuted && 'Speak naturally. You can interrupt NIVA anytime while it talks.'}
+            {connectionState === 'LISTENING' && isMuted && 'Unmute your microphone when you are ready to talk.'}
+            {connectionState === 'SPEAKING' && 'NIVA is responding warmly. Just start speaking to interrupt.'}
+            {connectionState === 'INTERRUPTING' && 'Stopping speech immediately for you.'}
+            {connectionState === 'CONNECTING' && 'Setting up low-latency native audio stream...'}
+            {connectionState === 'ENDED' && 'Your voice conversation is preserved in your wellness session.'}
+          </p>
+
+          {interruptionCount > 0 && (
+            <div className="text-[11px] text-stone-500 font-medium">
+              Interrupted & yielded {interruptionCount} time{interruptionCount === 1 ? '' : 's'}
+            </div>
+          )}
+
+          {errorMessage && (
+            <div className="mt-4 rounded-xl border border-red-500/40 bg-red-950/40 p-3 text-xs text-red-200 flex items-center justify-center gap-2">
+              <AlertCircle className="h-4 w-4 shrink-0" />
+              <span>{errorMessage}</span>
+            </div>
+          )}
+        </div>
+      </main>
+
+      {/* Central Control Bar */}
+      <footer className="border-t border-stone-800/80 bg-stone-900/80 backdrop-blur-md px-6 py-5">
+        <div className="mx-auto max-w-xl flex items-center justify-center gap-6">
+          {/* Mute/Unmute Toggle */}
+          <button
+            onClick={handleToggleMute}
+            disabled={connectionState === 'ENDED' || connectionState === 'CONNECTING'}
+            className={`flex flex-col items-center gap-1.5 p-3.5 rounded-2xl border transition-all ${
+              isMuted
+                ? 'border-amber-500/50 bg-amber-950/40 text-amber-300 hover:bg-amber-950/60'
+                : 'border-stone-700 bg-stone-800 text-stone-200 hover:bg-stone-700'
+            }`}
+            title={isMuted ? 'Unmute microphone' : 'Mute microphone'}
+          >
+            {isMuted ? <MicOff className="h-6 w-6" /> : <Mic className="h-6 w-6" />}
+            <span className="text-[11px] font-medium">{isMuted ? 'Unmute' : 'Mute'}</span>
+          </button>
+
+          {/* Central Interrupt / Barge-In Button */}
+          <button
+            onClick={handleManualInterrupt}
+            disabled={connectionState !== 'SPEAKING'}
+            className={`flex flex-col items-center gap-1.5 px-6 py-3.5 rounded-2xl border transition-all ${
+              connectionState === 'SPEAKING'
+                ? 'border-emerald-400 bg-emerald-600 text-white shadow-lg shadow-emerald-500/25 hover:bg-emerald-500 active:scale-95'
+                : 'border-stone-800 bg-stone-900/60 text-stone-500 cursor-not-allowed'
+            }`}
+            title="Interrupt NIVA and speak"
+          >
+            <Hand className="h-6 w-6" />
+            <span className="text-[11px] font-medium">Interrupt NIVA</span>
+          </button>
+
+          {/* End Voice Session Button */}
+          <button
+            onClick={handleEndSession}
+            className="flex flex-col items-center gap-1.5 p-3.5 rounded-2xl border border-red-500/40 bg-red-950/40 text-red-300 hover:bg-red-900/50 transition-all active:scale-95"
+            title="End voice session"
+          >
+            <PhoneOff className="h-6 w-6" />
+            <span className="text-[11px] font-medium">End Voice</span>
+          </button>
+        </div>
+
+        {/* Ethical Voice Disclaimer */}
+        <div className="mt-4 text-center text-[11px] text-stone-500 flex items-center justify-center gap-1.5">
+          <Shield className="h-3 w-3 text-emerald-500/80" />
+          <span>No raw audio is stored on disk or shared. NIVA is an AI wellness companion, not a clinical doctor.</span>
+        </div>
+      </footer>
+    </div>
+  );
+};
