@@ -1,6 +1,6 @@
 # NIVA — AI Mental Wellness Companion
 > *"Someone to talk to."*  
-> **Phase 1 Architecture & Security Foundation**
+> **Phase 3: AI Conversation Engine + Text Wellness Sessions**
 
 ---
 
@@ -13,20 +13,63 @@ NIVA is **NOT** a licensed psychiatrist, clinical psychologist, medical doctor, 
 
 ---
 
-## 2. Current Phase: Phase 1
+## 2. Current Status: Phase 3 AI Conversation Engine + Text Wellness Sessions
 
-This repository represents **Phase 1: Architecture, Security, & Monorepo Foundation**.
+This repository reflects **Phase 3: AI Conversation Engine + Text Wellness Sessions**, successfully delivering NIVA's core text conversation capabilities on top of Phase 1, Phase 2, and Phase 2.1 identity and security foundations.
 
-### Phase 1 Directives
-- Establish clean, extensible full-stack monorepo separation (`/frontend`, `/backend`, `/prisma`, `/shared`).
-- Implement the three-role architecture: `USER`, `GUARDIAN`, `ADMIN`.
-- Implement Google OAuth 2.0 authentication architecture with cryptographically secure session management.
-- Implement server-side Role-Based Access Control (RBAC) via NestJS `RolesGuard`.
-- Implement the Prisma PostgreSQL database schema with relationships and future extension points.
-- Implement a decoupled, vendor-agnostic `AIProvider` abstraction interface.
-- Establish an immutable security audit logging foundation.
-- Implement a robust `GET /health` endpoint.
-- **Strictly deferred to future phases:** Realtime voice-to-voice models, AI conversation generation engines, raw dialogue persistence, and administrative browsing of private chats.
+### Phase 3 Core Accomplishments
+1. **AI Model Integration (Gemini 3.8 Flash)**:
+   - Powered by Google's latest `gemini-3.8-flash` model via the modern `@google/genai` TypeScript SDK.
+   - All API keys (`GEMINI_API_KEY`) remain strictly server-side; client browsers never see or handle AI credentials.
+   - Decoupled via `AIProvider` abstraction (`GeminiAIProviderService`), enabling graceful degradation and extensibility.
+
+2. **NIVA Personality & Conversational Philosophy**:
+   - **Listens more than it talks**: Default responses are SHORT (normally 1–3 concise, conversational sentences).
+   - Warm, calm, empathetic, patient, non-judgmental, and accessible across ages and backgrounds.
+   - Never lectures, provides unsolicited multi-paragraph manuals, or creates emotional dependency.
+
+3. **User Preferences**:
+   - Configurable response style: `SHORT` (1–2 sentences), `BALANCED` (2–3 sentences), or `DETAILED` (3–5 sentences).
+   - Configurable conversational preference: `JUST_LISTEN` (empathy without unsolicited advice), `LISTEN_AND_RESPOND` (validation + gentle follow-up question), or `HELP_ME_SOLVE` (empathy + one practical grounding step).
+   - Stored in the database (`UserPreferences` model) with defaults: `responseStyle: "SHORT"`, `conversationPreference: "LISTEN_AND_RESPOND"`.
+
+4. **Wellness Session Lifecycle & Strict Ownership**:
+   - Start session (`POST /conversations` or `/api/conversations`).
+   - List sessions (`GET /conversations` or `/api/conversations`).
+   - Get session (`GET /conversations/:id` or `/api/conversations/:id`).
+   - Post message & receive NIVA reply (`POST /conversations/:id/messages`).
+   - End session (`POST /conversations/:id/end`).
+   - **Zero Cross-User Leakage**: Users can only access their own sessions; unauthorized access attempts are strictly blocked with `403 Forbidden`.
+
+5. **Safety Guardrails & Rate Limiting**:
+   - Pre-prompt safety evaluation detects severe harm/suicide triggers and redirects to real human emergency support (988).
+   - User rate limiting prevents runaway loops or abuse (20 messages per minute per user).
+   - In-memory and database usage metrics track conversations, messages, and AI requests.
+
+6. **Database Schema (Prisma)**:
+   - `UserPreferences`: User-specific response style and conversational modes.
+   - `Conversation`: Wellness sessions with `title`, `status` (`ACTIVE` | `ENDED`), and timestamps.
+   - `ConversationMessage`: Ordered transcript records (`role`: `user` | `assistant` | `system`).
+   - Migration `20260915120000_phase3_conversations_and_preferences` included.
+
+---
+
+## 3. Prior Phases Foundation
+
+### Phase 2 & 2.1 Security & RBAC Hardening
+1. **Cryptographic Google OAuth State Validation (CSRF & Replay Defense)**:
+   - High-entropy 256-bit state values (`crypto.randomBytes(32).toString('hex')`) generated at OAuth initiation.
+   - Associated with an `HttpOnly`, `SameSite=Lax`, short-lived (10-minute) `niva_oauth_state` cookie.
+   - Callback endpoints enforce strict state validation and timing-safe comparison.
+2. **Session & Cookie Security**:
+   - Sessions are identified by high-entropy random identifiers (`niva_sess_*`).
+   - Transmitted exclusively over `HttpOnly`, `SameSite=Lax` cookies.
+   - `GET /auth/me` returns sanitized user profiles: zero secrets or token credentials.
+   - `POST /auth/logout` invalidates the server session record and clears client cookies.
+3. **RBAC Guard Enforcement & Anti-Escalation Boundaries**:
+   - Roles: `USER` (default), `GUARDIAN`, `ADMIN`.
+   - `PATCH /users/me/role` strictly rejects self-assigned role changes with `403 Forbidden` and records security audit events (`ROLE_CHANGE_REJECTED`).
+   - `AdminGuard` and `GuardianGuard` block unauthorized requests deterministically.
 
 ---
 
@@ -268,23 +311,22 @@ The NestJS server will start on port `3001` (or specified `PORT`), exposing `GET
 
 ---
 
-## 13. How to Run Tests
+## 13. How to Run Tests & Verification
 
-NIVA includes unit and RBAC protection test suites:
+NIVA includes automated security verification scripts and unit test suites:
 
 ```bash
-# Run backend tests
+# 1. Run Phase 2.1 Security Hardening Automated Verification (Root)
+npx tsx scripts/verify-phase-2-1.ts
+
+# 2. Run NestJS Backend Unit & RBAC Tests
 cd backend
 npm test
 
-# Run health check controller tests
+# Run specific test suites:
+npm test -- auth.service.spec.ts   # Google OAuth, state verification, session handling
+npm test -- rbac-guards.spec.ts    # UserGuard, GuardianGuard, AdminGuard
 npm test -- health.controller.spec.ts
-
-# Run RBAC RolesGuard authorization tests
-npm test -- roles.guard.spec.ts
-
-# Run Google OAuth service tests
-npm test -- auth.service.spec.ts
 ```
 
 ---
@@ -293,41 +335,36 @@ npm test -- auth.service.spec.ts
 
 As a cybersecurity portfolio project, NIVA implements defense-in-depth principles from day one:
 1. **Zero Plaintext Passwords**: Authentication is strictly federated via Google Identity Services. Password cracking and credential stuffing attack vectors are eliminated.
-2. **Server-Enforced RBAC**: Client-side role badges are decorative only. The backend `RolesGuard` independently verifies user identity and permissions via secure server sessions.
-3. **No Unrestricted Admin Browsing**: Administrators **CANNOT** view user conversations. Future access models require cryptographic, time-bounded, audit-logged consent.
-4. **Sanitized Exception Filter**: NestJS `HttpExceptionFilter` intercepts all runtime errors, masking SQL queries, database constraints, and stack traces from external consumers.
-5. **Immutable Audit Trail**: All authentication events, permission checks, and administrative queries are logged with timestamps, IP addresses, and user agents.
+2. **Strict CSRF & Replay Defense**: OAuth flows generate 256-bit cryptographic state tokens validated via `crypto.timingSafeEqual` and destroyed immediately after single use.
+3. **No Fake User Fallbacks**: Database errors are safely logged and return server error responses. The backend never fabricates mock or demo sessions on failure.
+4. **Token Minimization**: Third-party OAuth tokens (`accessToken`, `refreshToken`, `idToken`) are discarded immediately after user claims verification; they are never stored in the database.
+5. **Server-Enforced RBAC & Anti-Escalation**: Client-side role badges are decorative only. `RolesGuard` independently verifies permissions. The backend explicitly rejects and logs attempts to modify user roles via `PATCH /users/me/role`.
+6. **No Unrestricted Admin Browsing**: Administrators **CANNOT** view user conversations. Future access models require cryptographic, time-bounded, audit-logged consent.
+7. **Sanitized Exception Handling**: Database constraints, query internals, and stack traces are never leaked to external callers.
+8. **Automated Audit Log Redaction**: Authentication and authorization events are audited with automatic redaction of secrets, tokens, API keys, and conversational message contents.
 
 ---
 
-## 15. What is NOT Implemented Yet
+## 15. Production Readiness Status
 
-In strict compliance with Phase 1 boundaries:
-- **No Realtime Voice Streaming**: WebRTC/WebSocket audio pipelines are scheduled for Phase 3.
-- **No Live AI Conversational Engine**: Model text generation is scheduled for Phase 2.
-- **No Direct Guardian View of Raw Transcripts**: Intentionally prohibited to preserve user privacy.
-- **No Full Administrative Control Panel**: Only telemetry and audit log queries exist in Phase 1.
-- **No Fake / Hallucinated AI Responses**: The `StubAIProviderService` transparently indicates that model attachment begins in Phase 2.
-
----
-
-## 16. What Phase 2 Will Implement
-
-Phase 2 will build directly upon this foundation:
-1. **AI Conversation Engine**: Connect real model providers (Gemini 2.5/Flash, Claude, or local LLMs) via the `AIProvider` abstraction.
-2. **Safety & Crisis Risk Classifier**: Multi-stage classification for emotional distress, self-harm signals, and violence triggers.
-3. **Conversational Dialogue Storage**: Encrypted `Conversation` and `ConversationMessage` Prisma models with strict ownership policies.
-4. **User Emotional Baseline & Tone Controls**: User-customizable conversation style (gentle, concise, reflective, structured).
-5. **Consent Management System**: Explicit, revocable user consent protocols for guardian safety notifications.
+| Subsystem | Readiness | Notes |
+| :--- | :--- | :--- |
+| **Authentication Core** | Production-Hardened | Real Google OAuth 2.0 flow, 256-bit CSRF state, single-use state cookie, timing-safe checks |
+| **Session Security** | Production-Hardened | High-entropy server sessions, `HttpOnly`, `SameSite=Lax`, strict database backing |
+| **RBAC Boundaries** | Production-Hardened | Strict role checks (`USER`, `GUARDIAN`, `ADMIN`), explicit role change blocking |
+| **Audit Logging** | Production-Hardened | Immutable security events, automatic redaction of sensitive credentials and prompts |
+| **Database Layer** | Production-Hardened | Prisma PostgreSQL schema, migrations applied, Token Minimization implemented |
+| **AI Conversation Engine** | Deferred (Phase 2.2/3) | Interfaces defined; live model attachments scheduled |
+| **Voice Pipelines** | Deferred (Phase 3) | Realtime WebSockets / WebRTC scheduled |
 
 ---
 
 ## Packaging & Download
 
-To generate a clean ZIP archive of this complete Phase 1 project excluding `node_modules` and secrets:
+To generate a clean ZIP archive of this complete Phase 2 project excluding `node_modules`, build artifacts, and secrets:
 
 ```bash
 npm run package
 ```
 
-The output file `niva-phase-1.zip` will be generated in the root directory. You can also download it directly from the live preview via the **"Download Phase 1 ZIP"** button or the `GET /api/download-zip` endpoint.
+The output file `niva-phase-2.zip` will be generated in the root directory. You can also download it directly from the live preview via the **"Download Phase 2 ZIP"** button or the `GET /api/download-zip` endpoint.

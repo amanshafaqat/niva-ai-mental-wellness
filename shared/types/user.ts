@@ -6,6 +6,7 @@ export interface User {
   name: string | null;
   avatarUrl: string | null;
   role: Role;
+  status: string;
   isActive: boolean;
   emailVerified: Date | null;
   createdAt: string | Date;
@@ -19,6 +20,7 @@ export interface UserProfileResponse {
   name: string | null;
   avatarUrl: string | null;
   role: Role;
+  status: string;
   permissions: string[];
   lastLoginAt: string | Date | null;
   createdAt: string | Date;

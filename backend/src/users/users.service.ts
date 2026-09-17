@@ -1,9 +1,16 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  InternalServerErrorException,
+  Logger,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { Role, ROLE_PERMISSIONS } from '@shared/constants/roles';
 
 @Injectable()
 export class UsersService {
+  private readonly logger = new Logger(UsersService.name);
+
   constructor(private readonly prisma: PrismaService) {}
 
   async findById(id: string) {
@@ -16,6 +23,7 @@ export class UsersService {
           name: true,
           avatarUrl: true,
           role: true,
+          status: true,
           isActive: true,
           createdAt: true,
           lastLoginAt: true,
@@ -30,18 +38,14 @@ export class UsersService {
         ...user,
         permissions: ROLE_PERMISSIONS[user.role as Role]?.permissions || [],
       };
-    } catch {
-      return {
-        id,
-        email: 'user@niva.wellness',
-        name: 'NIVA User',
-        avatarUrl: null,
-        role: Role.USER,
-        isActive: true,
-        createdAt: new Date().toISOString(),
-        lastLoginAt: new Date().toISOString(),
-        permissions: ROLE_PERMISSIONS[Role.USER].permissions,
-      };
+    } catch (error: any) {
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+      this.logger.error(`Failed to retrieve user ID ${id}: ${error?.message}`);
+      throw new InternalServerErrorException(
+        'Unable to retrieve user information due to an internal server error',
+      );
     }
   }
 
@@ -55,23 +59,17 @@ export class UsersService {
           email: true,
           name: true,
           role: true,
+          status: true,
           isActive: true,
           createdAt: true,
           lastLoginAt: true,
         },
       });
-    } catch {
-      return [
-        {
-          id: 'mock-user-1',
-          email: 'demo-user@niva.wellness',
-          name: 'Demo Student User',
-          role: Role.USER,
-          isActive: true,
-          createdAt: new Date().toISOString(),
-          lastLoginAt: new Date().toISOString(),
-        },
-      ];
+    } catch (error: any) {
+      this.logger.error(`Failed to retrieve user directory: ${error?.message}`);
+      throw new InternalServerErrorException(
+        'Unable to retrieve user directory due to an internal server error',
+      );
     }
   }
 }

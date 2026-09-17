@@ -20,6 +20,9 @@ export interface AuthSession {
     name: string | null;
     avatarUrl: string | null;
     role: Role;
+    status?: string;
+    createdAt?: string;
+    lastLoginAt?: string | null;
   };
 }
 

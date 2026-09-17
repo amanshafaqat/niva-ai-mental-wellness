@@ -1,6 +1,6 @@
 /**
- * NIVA Phase 1 Project Packager
- * Generates clean, production-ready niva-phase-1.zip archive
+ * NIVA Phase 2 Project Packager
+ * Generates clean, production-ready niva-phase-2.zip archive
  * Excludes: node_modules, build artifacts, git internals, and secrets.
  */
 
@@ -23,6 +23,7 @@ const EXCLUDED_FILES = new Set([
   '.env.local',
   '.DS_Store',
   'niva-phase-1.zip',
+  'niva-phase-2.zip',
 ]);
 
 function shouldInclude(filePath: string, relativePath: string): boolean {
@@ -32,6 +33,7 @@ function shouldInclude(filePath: string, relativePath: string): boolean {
   }
   const fileName = path.basename(filePath);
   if (EXCLUDED_FILES.has(fileName)) return false;
+  if (fileName.endsWith('.zip')) return false;
   return true;
 }
 
@@ -67,9 +69,9 @@ export async function generateProjectZipBuffer(rootDir = process.cwd()): Promise
 }
 
 async function main() {
-  console.log('📦 Packaging NIVA Phase 1 Monorepo...');
+  console.log('📦 Packaging NIVA Phase 2 Monorepo...');
   const buffer = await generateProjectZipBuffer(process.cwd());
-  const outputPath = path.join(process.cwd(), 'niva-phase-1.zip');
+  const outputPath = path.join(process.cwd(), 'niva-phase-2.zip');
   fs.writeFileSync(outputPath, buffer);
   console.log(`✅ Package generated successfully at: ${outputPath} (${(buffer.length / 1024).toFixed(1)} KB)`);
 }

@@ -12,13 +12,21 @@ export class SessionAuthGuard implements CanActivate {
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest();
-    const authHeader = request.headers.authorization;
+    
+    // Check HttpOnly cookie first, then fallback to Authorization header
+    let token: string | undefined = request.cookies?.niva_session;
 
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      throw new UnauthorizedException('Authentication token required');
+    if (!token) {
+      const authHeader = request.headers.authorization;
+      if (authHeader && authHeader.startsWith('Bearer ')) {
+        token = authHeader.replace('Bearer ', '').trim();
+      }
     }
 
-    const token = authHeader.replace('Bearer ', '').trim();
+    if (!token) {
+      throw new UnauthorizedException('Authentication session required');
+    }
+
     const session = await this.authService.validateSession(token);
 
     if (!session) {

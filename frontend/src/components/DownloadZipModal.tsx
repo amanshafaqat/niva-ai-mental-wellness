@@ -36,7 +36,7 @@ export const DownloadZipModal: React.FC<DownloadZipModalProps> = ({ isOpen, onCl
             </div>
             <div>
               <h3 id="download-modal-title" className="text-xl font-semibold text-stone-900">
-                Download NIVA Phase 1 Project
+                Download NIVA Phase 2 Project
               </h3>
               <p className="text-xs text-stone-600">Complete, self-contained monorepo archive</p>
             </div>
@@ -53,40 +53,40 @@ export const DownloadZipModal: React.FC<DownloadZipModalProps> = ({ isOpen, onCl
         <div className="mt-5 rounded-xl border border-stone-200 bg-stone-50/70 p-4 text-xs text-stone-700 space-y-2">
           <div className="font-semibold text-stone-900 flex items-center gap-1.5">
             <Package className="h-4 w-4 text-emerald-800" />
-            <span>Archive Contents Verification:</span>
+            <span>Phase 2 Archive Contents:</span>
           </div>
           <div className="grid grid-cols-2 gap-2 pt-1 font-mono text-[11px]">
             <div className="flex items-center gap-1.5">
               <CheckCircle2 className="h-3.5 w-3.5 text-emerald-800 shrink-0" />
-              <span>/backend (NestJS)</span>
+              <span>Google OAuth 2.0 Auth</span>
             </div>
             <div className="flex items-center gap-1.5">
               <CheckCircle2 className="h-3.5 w-3.5 text-emerald-800 shrink-0" />
-              <span>/frontend (Next.js)</span>
+              <span>HttpOnly Cookie Sessions</span>
             </div>
             <div className="flex items-center gap-1.5">
               <CheckCircle2 className="h-3.5 w-3.5 text-emerald-800 shrink-0" />
-              <span>/prisma (PostgreSQL)</span>
+              <span>RBAC Server Guards</span>
             </div>
             <div className="flex items-center gap-1.5">
               <CheckCircle2 className="h-3.5 w-3.5 text-emerald-800 shrink-0" />
-              <span>/shared (Types/Roles)</span>
+              <span>Audit Logging Engine</span>
             </div>
             <div className="flex items-center gap-1.5">
               <CheckCircle2 className="h-3.5 w-3.5 text-emerald-800 shrink-0" />
-              <span>Unit & RBAC Tests</span>
+              <span>Prisma Schema & Migrations</span>
             </div>
             <div className="flex items-center gap-1.5">
               <CheckCircle2 className="h-3.5 w-3.5 text-emerald-800 shrink-0" />
-              <span>.env.example configs</span>
+              <span>NestJS Backend & Guards</span>
             </div>
             <div className="flex items-center gap-1.5">
               <CheckCircle2 className="h-3.5 w-3.5 text-emerald-800 shrink-0" />
-              <span>Complete README.md</span>
+              <span>Next.js/React Frontend</span>
             </div>
             <div className="flex items-center gap-1.5">
               <CheckCircle2 className="h-3.5 w-3.5 text-emerald-800 shrink-0" />
-              <span>AIProvider Interface</span>
+              <span>Decoupled AI Engine</span>
             </div>
           </div>
         </div>
@@ -94,7 +94,7 @@ export const DownloadZipModal: React.FC<DownloadZipModalProps> = ({ isOpen, onCl
         <div className="mt-4 flex items-center gap-2 text-xs text-stone-600 bg-emerald-50/60 border border-emerald-200 rounded-lg p-3">
           <ShieldCheck className="h-4 w-4 text-emerald-800 shrink-0" />
           <span>
-            Clean distribution: Excludes <code className="font-mono text-stone-800">node_modules</code>, build caches, and private keys.
+            Clean distribution: Excludes <code className="font-mono text-stone-800">node_modules</code>, build caches, and private secrets.
           </span>
         </div>
 
@@ -119,7 +119,7 @@ export const DownloadZipModal: React.FC<DownloadZipModalProps> = ({ isOpen, onCl
             ) : (
               <>
                 <Download className="h-4 w-4" />
-                <span>Download niva-phase-1.zip</span>
+                <span>Download niva-phase-2.zip</span>
               </>
             )}
           </button>

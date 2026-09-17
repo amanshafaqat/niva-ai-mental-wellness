@@ -111,7 +111,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             className="flex items-center gap-1.5 rounded-lg border border-stone-300 bg-stone-50 px-3 py-1.5 text-xs sm:text-sm font-medium text-stone-700 shadow-sm transition hover:bg-stone-100 hover:text-stone-900"
           >
             <Download className="h-3.5 w-3.5 text-emerald-800" />
-            <span className="hidden sm:inline">Download Phase 1 ZIP</span>
+            <span className="hidden sm:inline">Download Phase 2 ZIP</span>
             <span className="sm:hidden">ZIP</span>
           </button>
 

@@ -33,6 +33,7 @@ model User {
   
   // Security & Role-Based Access Control
   role          Role      @default(USER)
+  status        String    @default("ACTIVE") // Account status: ACTIVE, SUSPENDED, DEACTIVATED
   isActive      Boolean   @default(true)
   
   // Timestamps
@@ -44,21 +45,69 @@ model User {
   accounts      Account[]
   sessions      Session[]
   auditLogs     AuditLog[]
-
-  // --------------------------------------------------------------------------
-  // Architectural Placeholders for Future Phases:
-  // Designed so Phase 2 and beyond can extend without breaking User references.
-  // - WellnessProfile (user baseline, emotional trends, preferences)
-  // - Conversations (strictly access-controlled dialogue history)
-  // - VoiceSessions (ephemeral realtime voice metrics)
-  // - GuardianRelationships (bidirectional consent-gated links)
-  // - ConsentRecords (explicit, revocable user consents)
-  // - SafetyEvents (audit-logged crisis/safety interventions)
-  // --------------------------------------------------------------------------
+  
+  // Phase 3: AI Conversation Engine & Wellness Sessions
+  conversations    Conversation[]
+  preferences      UserPreferences?
 
   @@index([email])
   @@index([role])
+  @@index([status])
   @@map("users")
+}
+
+// ------------------------------------------------------------------------------
+// User Preferences Model (Phase 3)
+// ------------------------------------------------------------------------------
+model UserPreferences {
+  id                     String   @id @default(uuid())
+  userId                 String   @unique
+  responseStyle          String   @default("SHORT")              // SHORT, BALANCED, DETAILED
+  conversationPreference String   @default("LISTEN_AND_RESPOND") // JUST_LISTEN, LISTEN_AND_RESPOND, HELP_ME_SOLVE
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  user                   User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_preferences")
+}
+
+// ------------------------------------------------------------------------------
+// Conversation Model (Phase 3 Wellness Session)
+// ------------------------------------------------------------------------------
+model Conversation {
+  id        String                @id @default(uuid())
+  userId    String
+  title     String                @default("Wellness Session")
+  status    String                @default("ACTIVE") // ACTIVE, ENDED
+  createdAt DateTime              @default(now())
+  updatedAt DateTime              @updatedAt
+  endedAt   DateTime?
+
+  user      User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages  ConversationMessage[]
+
+  @@index([userId])
+  @@index([userId, status])
+  @@index([createdAt])
+  @@map("conversations")
+}
+
+// ------------------------------------------------------------------------------
+// Conversation Message Model (Phase 3)
+// ------------------------------------------------------------------------------
+model ConversationMessage {
+  id             String       @id @default(uuid())
+  conversationId String
+  role           String       // "user", "assistant", "system"
+  content        String       @db.Text
+  createdAt      DateTime     @default(now())
+
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId])
+  @@index([conversationId, createdAt])
+  @@map("conversation_messages")
 }
 
 // ------------------------------------------------------------------------------
@@ -70,13 +119,7 @@ model Account {
   type               String    // e.g. "oauth"
   provider           String    // e.g. "google"
   providerAccountId  String    // Google 'sub' claim
-  refreshToken       String?   @db.Text
-  accessToken        String?   @db.Text
-  expiresAt          Int?
-  tokenType          String?
   scope              String?
-  idToken            String?   @db.Text
-  sessionState       String?
   
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt

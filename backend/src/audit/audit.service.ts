@@ -112,7 +112,22 @@ export class AuditService {
   private sanitizeMetadata(metadata?: Record<string, unknown>): Record<string, unknown> | undefined {
     if (!metadata) return undefined;
     const sanitized = { ...metadata };
-    const sensitiveKeys = ['password', 'token', 'secret', 'accessToken', 'refreshToken', 'idToken'];
+    const sensitiveKeys = [
+      'password',
+      'token',
+      'secret',
+      'accesstoken',
+      'refreshtoken',
+      'idtoken',
+      'credential',
+      'auth',
+      'gemini',
+      'apikey',
+      'key',
+      'message',
+      'conversation',
+      'prompt',
+    ];
 
     for (const key of Object.keys(sanitized)) {
       if (sensitiveKeys.some((s) => key.toLowerCase().includes(s))) {

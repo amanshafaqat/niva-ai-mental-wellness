@@ -13,7 +13,7 @@ export const ArchitectureViewer: React.FC = () => {
             <span>NIVA Architecture & Technical Blueprint</span>
           </h3>
           <p className="mt-1 text-xs text-stone-600">
-            Phase 1 Foundation: Next.js + NestJS + PostgreSQL + Prisma ORM + Google OAuth + AI Abstraction.
+            Phase 2: Next.js + NestJS + PostgreSQL + Prisma ORM + Real Google OAuth + RBAC Guards + HttpOnly Sessions.
           </p>
         </div>
 
@@ -132,6 +132,7 @@ model User {
   name          String?
   avatarUrl     String?
   role          Role        @default(USER)
+  status        String      @default("ACTIVE")
   isActive      Boolean     @default(true)
   createdAt     DateTime    @default(now())
   updatedAt     DateTime    @updatedAt

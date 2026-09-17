@@ -31,7 +31,7 @@ export const HeroSection: React.FC<HeroSectionProps> = ({
         <div className="mx-auto max-w-3xl text-center">
           <div className="inline-flex items-center gap-2 rounded-full border border-emerald-300 bg-emerald-50 px-3.5 py-1 text-xs font-semibold text-emerald-900 mb-6">
             <Sparkles className="h-3.5 w-3.5 text-emerald-700" />
-            <span>NIVA Foundation • Phase 1 Architecture</span>
+            <span>NIVA Foundation • Phase 2: Authentication, User Identity & RBAC</span>
           </div>
 
           <h1 className="text-4xl font-semibold tracking-tight text-stone-900 sm:text-5xl md:text-6xl">

@@ -14,11 +14,12 @@ import {
 import { useAuth } from '../lib/auth-context';
 import { RoleTester } from './RoleTester';
 import { AuditLogViewer } from './AuditLogViewer';
+import { WellnessChatSession } from './WellnessChatSession';
 import { Role, ROLE_PERMISSIONS } from '@shared/constants/roles';
 
 export const DashboardView: React.FC = () => {
   const { session } = useAuth();
-  const [activeTab, setActiveTab] = useState<'profile' | 'rbac' | 'audit' | 'privacy'>('profile');
+  const [activeTab, setActiveTab] = useState<'session' | 'profile' | 'rbac' | 'audit' | 'privacy'>('session');
 
   if (!session) {
     return (
@@ -64,12 +65,15 @@ export const DashboardView: React.FC = () => {
                   <span className="rounded-md border border-emerald-300 bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-900">
                     {user.role}
                   </span>
+                  <span className="rounded-md border border-stone-200 bg-stone-100 px-2 py-0.5 text-xs font-medium text-stone-700">
+                    Status: {user.status || 'ACTIVE'}
+                  </span>
                 </div>
                 <p className="text-sm text-stone-600">{user.email}</p>
                 <div className="mt-1 flex items-center gap-3 text-xs text-stone-500 font-mono">
                   <span>ID: {user.id}</span>
                   <span>•</span>
-                  <span>Session: {session.token.substring(0, 16)}...</span>
+                  <span>Auth: HttpOnly Cookie</span>
                 </div>
               </div>
             </div>
@@ -86,19 +90,52 @@ export const DashboardView: React.FC = () => {
           </div>
         </div>
 
-        {/* Phase 1 Ethical Guardrail Notice */}
-        <div className="mt-6 rounded-xl border border-blue-200 bg-blue-50/70 p-4 text-xs text-blue-950 flex items-start gap-3">
-          <Sparkles className="h-4 w-4 text-blue-700 shrink-0 mt-0.5" />
+        {/* Phase 2 Ethical Guardrail Notice */}
+        <div className="mt-6 rounded-xl border border-emerald-200 bg-emerald-50/70 p-4 text-xs text-emerald-950 flex items-start gap-3">
+          <Sparkles className="h-4 w-4 text-emerald-700 shrink-0 mt-0.5" />
           <div>
-            <span className="font-semibold">Phase 1 Foundation Mode:</span> The core architecture,
-            Prisma/PostgreSQL models, Google OAuth, server-side RBAC, and AIProvider abstraction are
-            active. Live AI conversational models and voice streaming will be connected in Phase 2.
-            No fake conversational data is generated.
+            <span className="font-semibold">Phase 2 Active:</span> Real Google OAuth 2.0 flow, server-enforced RBAC guards, and HttpOnly session cookies are operational. User roles default to USER and cannot be escalated from the frontend. Live conversational models will be connected in Phase 3.
           </div>
         </div>
 
+        {/* Role-Specific Area Foundations */}
+        {user.role === Role.ADMIN && (
+          <div className="mt-6 rounded-2xl border border-purple-200 bg-purple-50/40 p-5 shadow-xs">
+            <div className="flex items-center gap-2 text-purple-950 font-semibold mb-1">
+              <Shield className="h-4 w-4 text-purple-700" />
+              <span>Admin Area Foundation</span>
+            </div>
+            <p className="text-xs text-purple-900 leading-relaxed">
+              Administrative platform monitoring and user directory access. This foundation establishes the authorization boundaries (<code className="font-mono bg-purple-100 px-1 py-0.5 rounded">AdminGuard</code>) for full administrative dashboards in future phases.
+            </p>
+          </div>
+        )}
+
+        {user.role === Role.GUARDIAN && (
+          <div className="mt-6 rounded-2xl border border-blue-200 bg-blue-50/40 p-5 shadow-xs">
+            <div className="flex items-center gap-2 text-blue-950 font-semibold mb-1">
+              <Shield className="h-4 w-4 text-blue-700" />
+              <span>Guardian Area Foundation</span>
+            </div>
+            <p className="text-xs text-blue-900 leading-relaxed">
+              Guardian oversight area for consented wards. Direct dialogue access is strictly prohibited by architecture; only high-level safety signals and risk notifications are authorized.
+            </p>
+          </div>
+        )}
+
         {/* Dashboard Navigation Tabs */}
         <div className="mt-8 flex flex-wrap border-b border-stone-200 gap-2">
+          <button
+            onClick={() => setActiveTab('session')}
+            className={`flex items-center gap-2 border-b-2 px-4 py-2.5 text-sm font-medium transition ${
+              activeTab === 'session'
+                ? 'border-emerald-700 text-emerald-800 font-semibold'
+                : 'border-transparent text-stone-700 hover:text-stone-900'
+            }`}
+          >
+            <Sparkles className="h-4 w-4" />
+            <span>NIVA Wellness Session</span>
+          </button>
           <button
             onClick={() => setActiveTab('profile')}
             className={`flex items-center gap-2 border-b-2 px-4 py-2.5 text-sm font-medium transition ${
@@ -147,6 +184,8 @@ export const DashboardView: React.FC = () => {
 
         {/* Tab Contents */}
         <div className="mt-6">
+          {activeTab === 'session' && <WellnessChatSession />}
+
           {activeTab === 'profile' && (
             <div className="space-y-6">
               <div className="rounded-2xl border border-stone-200 bg-white p-6 shadow-xs">

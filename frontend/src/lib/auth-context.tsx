@@ -1,86 +1,130 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
 import { AuthSession, GoogleOAuthPayload } from '@shared/types/auth';
-import { Role } from '@shared/constants/roles';
-import { verifyGoogleAuth, logoutSession } from './api';
+import { fetchAuthMe, verifyGoogleAuth, logoutSession } from './api';
+
+export type AuthState =
+  | 'unauthenticated'
+  | 'loading'
+  | 'in_progress'
+  | 'authenticated'
+  | 'error'
+  | 'session_expired'
+  | 'logged_out';
 
 interface AuthContextType {
   session: AuthSession | null;
+  user: AuthSession['user'] | null;
   isAuthenticated: boolean;
   isLoading: boolean;
+  authStatus: AuthState;
   error: string | null;
-  signInWithGoogle: (payload: GoogleOAuthPayload) => Promise<void>;
+  signInWithGoogleRedirect: () => void;
+  signInWithGoogle: (payload: GoogleOAuthPayload | { idToken: string } | { credential: string }) => Promise<void>;
   signOut: () => Promise<void>;
-  setSimulatedRole: (role: Role) => void;
+  refreshSession: () => Promise<void>;
   clearError: () => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-const STORAGE_KEY = 'niva_auth_session_phase1';
-
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<AuthSession | null>(null);
-  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [authStatus, setAuthStatus] = useState<AuthState>('loading');
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    // Restore session on mount if valid
+  const refreshSession = useCallback(async () => {
     try {
-      const stored = localStorage.getItem(STORAGE_KEY);
-      if (stored) {
-        const parsed: AuthSession = JSON.parse(stored);
-        if (new Date(parsed.expiresAt) > new Date()) {
-          setSession(parsed);
-        } else {
-          localStorage.removeItem(STORAGE_KEY);
-        }
-      }
+      setAuthStatus('loading');
+      const data = await fetchAuthMe();
+      const loadedSession: AuthSession = {
+        token: 'cookie_session', // Hidden behind HttpOnly cookie
+        expiresAt: data.expiresAt,
+        user: data.user,
+      };
+      setSession(loadedSession);
+      setAuthStatus('authenticated');
+      setError(null);
     } catch {
-      localStorage.removeItem(STORAGE_KEY);
-    } finally {
-      setIsLoading(false);
+      setSession(null);
+      setAuthStatus('unauthenticated');
     }
   }, []);
 
-  const signInWithGoogle = async (payload: GoogleOAuthPayload) => {
-    setIsLoading(true);
+  useEffect(() => {
+    // 1. Check URL parameters from Google OAuth redirection
+    if (typeof window !== 'undefined') {
+      const urlParams = new URLSearchParams(window.location.search);
+      const authParam = urlParams.get('auth');
+      const reason = urlParams.get('reason');
+
+      if (authParam === 'success') {
+        window.history.replaceState({}, document.title, window.location.pathname);
+        refreshSession();
+        return;
+      }
+
+      if (authParam === 'unconfigured') {
+        window.history.replaceState({}, document.title, window.location.pathname);
+        setError(
+          'Google Cloud OAuth client credentials (GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET) are not configured in your environment. You can test identity verification or configure real credentials in Settings.',
+        );
+        setAuthStatus('error');
+        return;
+      }
+
+      if (authParam === 'error') {
+        window.history.replaceState({}, document.title, window.location.pathname);
+        setError(`Google authentication failed: ${reason || 'Unknown error'}`);
+        setAuthStatus('error');
+        return;
+      }
+    }
+
+    // 2. Validate existing HttpOnly cookie session with server
+    refreshSession();
+  }, [refreshSession]);
+
+  /**
+   * Redirects browser to server-initiated Google OAuth consent screen
+   */
+  const signInWithGoogleRedirect = () => {
+    setAuthStatus('in_progress');
+    setError(null);
+    window.location.href = '/api/auth/google';
+  };
+
+  /**
+   * Completes verification with server (Google ID token / GIS / payload)
+   */
+  const signInWithGoogle = async (
+    payload: GoogleOAuthPayload | { idToken: string } | { credential: string },
+  ) => {
+    setAuthStatus('in_progress');
     setError(null);
     try {
       const result = await verifyGoogleAuth(payload);
       setSession(result.session);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(result.session));
+      setAuthStatus('authenticated');
     } catch (err: any) {
-      const msg = err?.message || 'Google authentication failed';
+      const msg = err?.message || 'Authentication failed. Please verify your credentials.';
       setError(msg);
+      setAuthStatus('error');
       throw err;
-    } finally {
-      setIsLoading(false);
     }
   };
 
+  /**
+   * Securely invalidates server session and clears HttpOnly cookie
+   */
   const signOut = async () => {
-    if (session?.token) {
-      try {
-        await logoutSession(session.token);
-      } catch {
-        // Ignore network errors on logout
-      }
+    try {
+      await logoutSession(session?.token);
+    } catch {
+      // Ignore network errors on logout
+    } finally {
+      setSession(null);
+      setAuthStatus('logged_out');
     }
-    setSession(null);
-    localStorage.removeItem(STORAGE_KEY);
-  };
-
-  const setSimulatedRole = (role: Role) => {
-    if (!session) return;
-    const updated: AuthSession = {
-      ...session,
-      user: {
-        ...session.user,
-        role,
-      },
-    };
-    setSession(updated);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
   };
 
   const clearError = () => setError(null);
@@ -89,12 +133,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     <AuthContext.Provider
       value={{
         session,
+        user: session?.user || null,
         isAuthenticated: Boolean(session),
-        isLoading,
+        isLoading: authStatus === 'loading',
+        authStatus,
         error,
+        signInWithGoogleRedirect,
         signInWithGoogle,
         signOut,
-        setSimulatedRole,
+        refreshSession,
         clearError,
       }}
     >
