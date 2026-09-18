@@ -36,7 +36,7 @@ export const DownloadZipModal: React.FC<DownloadZipModalProps> = ({ isOpen, onCl
             </div>
             <div>
               <h3 id="download-modal-title" className="text-xl font-semibold text-stone-900">
-                Download NIVA Phase 4 Project
+                Download NIVA Phase 4.1 Project
               </h3>
               <p className="text-xs text-stone-600">Complete, self-contained monorepo archive</p>
             </div>
@@ -53,7 +53,7 @@ export const DownloadZipModal: React.FC<DownloadZipModalProps> = ({ isOpen, onCl
         <div className="mt-5 rounded-xl border border-stone-200 bg-stone-50/70 p-4 text-xs text-stone-700 space-y-2">
           <div className="font-semibold text-stone-900 flex items-center gap-1.5">
             <Package className="h-4 w-4 text-emerald-800" />
-            <span>Phase 4 Archive Contents:</span>
+            <span>Phase 4.1 Archive Contents:</span>
           </div>
           <div className="grid grid-cols-2 gap-2 pt-1 font-mono text-[11px]">
             <div className="flex items-center gap-1.5">
@@ -119,7 +119,7 @@ export const DownloadZipModal: React.FC<DownloadZipModalProps> = ({ isOpen, onCl
             ) : (
               <>
                 <Download className="h-4 w-4" />
-                <span>Download niva-phase-4.zip</span>
+                <span>Download niva-phase-4.1-final.zip</span>
               </>
             )}
           </button>

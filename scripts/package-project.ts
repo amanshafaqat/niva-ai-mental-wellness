@@ -1,6 +1,6 @@
 /**
- * NIVA Phase 4 Project Packager
- * Generates clean, production-ready niva-phase-4.zip archive
+ * NIVA Phase 4.1 Final Project Packager
+ * Generates clean, production-ready niva-phase-4.1-final.zip archive
  * Excludes: node_modules, build artifacts, git internals, and secrets.
  */
 

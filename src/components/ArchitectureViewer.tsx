@@ -118,7 +118,7 @@ export const ArchitectureViewer: React.FC = () => {
 
         {activeTab === 'prisma' && (
           <div className="rounded-xl bg-stone-900 p-4 text-stone-200 text-xs font-mono overflow-x-auto leading-relaxed max-h-96">
-            <pre>{`// NIVA Prisma Schema (Phase 1 Foundation)
+            <pre>{`// NIVA Prisma Schema (Phase 4.1 Schema)
 enum Role {
   USER       // Primary end-user
   GUARDIAN   // Authorized contact with consent-gated oversight

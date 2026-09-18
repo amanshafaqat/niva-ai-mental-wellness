@@ -19,14 +19,16 @@ export const DisclaimerBanner: React.FC = () => {
         <div className="flex items-center gap-3">
           <span className="flex items-center gap-1 font-semibold text-amber-900">
             <PhoneCall className="h-3.5 w-3.5 text-amber-800" aria-hidden="true" />
-            Immediate Crisis? Dial or text{' '}
+            Immediate Crisis? Contact your local emergency services, a trusted professional, or visit{' '}
             <a
-              href="tel:988"
+              href="https://findahelpline.com"
+              target="_blank"
+              rel="noopener noreferrer"
               className="underline hover:text-amber-700 focus:outline-none focus:ring-2 focus:ring-amber-500 rounded"
             >
-              988
+              findahelpline.com
             </a>{' '}
-            (US/CA) or your local helpline.
+            for free, confidential global support.
           </span>
         </div>
       </div>

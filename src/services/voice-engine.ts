@@ -206,7 +206,17 @@ export function setupVoiceWebSocketServer(wss: WebSocketServer) {
     let voiceSessionId: string | null = null;
     let geminiLiveSession: any = null;
     let isCleanedUp = false;
+    let lastInterruptionTime = 0;
     const sessionStartTime = Date.now();
+
+    const registerInterruption = (sessObj: any) => {
+      const now = Date.now();
+      if (now - lastInterruptionTime > 1500) {
+        lastInterruptionTime = now;
+        if (sessObj) sessObj.interruptionCount += 1;
+        voiceUsageStore.totalInterruptions += 1;
+      }
+    };
 
     const cleanup = async () => {
       if (isCleanedUp) return;
@@ -216,7 +226,7 @@ export function setupVoiceWebSocketServer(wss: WebSocketServer) {
 
       if (voiceSessionId) {
         const sess = voiceSessionsStore.get(voiceSessionId);
-        if (sess && sess.status !== 'ENDED') {
+        if (sess && sess.status !== 'ENDED' && sess.status !== 'FAILED') {
           sess.status = 'ENDED';
           sess.endedAt = new Date().toISOString();
           sess.durationSeconds = durationSeconds;
@@ -224,21 +234,21 @@ export function setupVoiceWebSocketServer(wss: WebSocketServer) {
           if (voiceUsageStore.activeVoiceSessions > 0) {
             voiceUsageStore.activeVoiceSessions -= 1;
           }
-        }
 
-        // Update persistent Prisma VoiceSession
-        try {
-          const prisma = getPrismaClient();
-          await prisma.voiceSession.update({
-            where: { id: voiceSessionId },
-            data: {
-              status: 'ENDED',
-              endedAt: new Date(),
-              durationSeconds,
-            },
-          });
-        } catch (dbErr) {
-          // Graceful fallback
+          // Update persistent Prisma VoiceSession
+          try {
+            const prisma = getPrismaClient();
+            await prisma.voiceSession.update({
+              where: { id: voiceSessionId },
+              data: {
+                status: 'ENDED',
+                endedAt: new Date(),
+                durationSeconds,
+              },
+            });
+          } catch (dbErr) {
+            // Graceful fallback
+          }
         }
       }
 
@@ -309,8 +319,19 @@ export function setupVoiceWebSocketServer(wss: WebSocketServer) {
       } catch (dbErr) {}
 
       const apiKey = process.env.GEMINI_API_KEY;
-      if (!apiKey) {
+      if (!apiKey || apiKey === 'MY_GEMINI_API_KEY' || apiKey.trim().length === 0) {
         voiceUsageStore.connectionFailures += 1;
+        if (voiceSessionId) {
+          const s = voiceSessionsStore.get(voiceSessionId);
+          if (s) s.status = 'FAILED';
+          try {
+            const prisma = getPrismaClient();
+            await prisma.voiceSession.update({
+              where: { id: voiceSessionId },
+              data: { status: 'FAILED', endedAt: new Date() },
+            });
+          } catch (dbErr) {}
+        }
         clientWs.send(
           JSON.stringify({
             type: 'ERROR',
@@ -362,8 +383,7 @@ export function setupVoiceWebSocketServer(wss: WebSocketServer) {
 
               // Check if interrupted by user speech
               if (message.serverContent?.interrupted) {
-                if (sess) sess.interruptionCount += 1;
-                voiceUsageStore.totalInterruptions += 1;
+                registerInterruption(sess);
                 clientWs.send(JSON.stringify({ type: 'INTERRUPTED' } as ServerVoiceMessage));
                 return;
               }
@@ -408,6 +428,17 @@ export function setupVoiceWebSocketServer(wss: WebSocketServer) {
       } catch (connectErr: any) {
         console.error('Failed to establish Gemini Live connection:', connectErr?.message || connectErr);
         voiceUsageStore.connectionFailures += 1;
+        if (voiceSessionId) {
+          const s = voiceSessionsStore.get(voiceSessionId);
+          if (s) s.status = 'FAILED';
+          try {
+            const prisma = getPrismaClient();
+            await prisma.voiceSession.update({
+              where: { id: voiceSessionId },
+              data: { status: 'FAILED', endedAt: new Date() },
+            });
+          } catch (dbErr) {}
+        }
         clientWs.send(
           JSON.stringify({
             type: 'ERROR',
@@ -427,9 +458,13 @@ export function setupVoiceWebSocketServer(wss: WebSocketServer) {
           const parsed = JSON.parse(rawData.toString()) as ClientVoiceMessage;
 
           if (parsed.type === 'AUDIO_CHUNK') {
-            // Forward PCM 16kHz base64 audio to Gemini Live
+            // Forward PCM 16kHz base64 audio to Gemini Live using official SDK contract
             geminiLiveSession.sendRealtimeInput({
-              mediaChunks: [
+              audio: {
+                data: parsed.audio,
+                mimeType: 'audio/pcm;rate=16000',
+              },
+              media: [
                 {
                   data: parsed.audio,
                   mimeType: 'audio/pcm;rate=16000',
@@ -438,14 +473,13 @@ export function setupVoiceWebSocketServer(wss: WebSocketServer) {
             });
           } else if (parsed.type === 'INTERRUPT') {
             // Client detected barge-in or tapped interrupt
-            if (sess) sess.interruptionCount += 1;
-            voiceUsageStore.totalInterruptions += 1;
+            registerInterruption(sess);
             // Confirm interruption to client immediately
             clientWs.send(JSON.stringify({ type: 'INTERRUPTED' } as ServerVoiceMessage));
-            // Cut model turn on Live API session
+            // Cut model turn on Live API session via activity start
             try {
               geminiLiveSession.sendRealtimeInput({
-                mediaChunks: [],
+                activityStart: {},
               });
             } catch (err) {}
           } else if (parsed.type === 'END_SESSION') {

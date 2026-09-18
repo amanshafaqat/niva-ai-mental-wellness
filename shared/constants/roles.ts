@@ -1,6 +1,6 @@
 /**
  * NIVA Mental Wellness Companion - Shared Roles & Permissions
- * Phase 1 Architecture
+ * Phase 4.1 Architecture
  */
 
 export enum Role {

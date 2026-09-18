@@ -56,7 +56,10 @@ export function arrayBufferToBase64(buffer: ArrayBuffer): string {
   for (let i = 0; i < len; i++) {
     binary += String.fromCharCode(bytes[i]);
   }
-  return window.btoa(binary);
+  if (typeof window !== 'undefined' && typeof window.btoa === 'function') {
+    return window.btoa(binary);
+  }
+  return Buffer.from(binary, 'binary').toString('base64');
 }
 
 /**
@@ -67,14 +70,18 @@ export function base64PCMToAudioBuffer(
   audioContext: AudioContext,
   sampleRate = 24000,
 ): AudioBuffer {
-  const binaryString = window.atob(base64Data);
+  const binaryString =
+    typeof window !== 'undefined' && typeof window.atob === 'function'
+      ? window.atob(base64Data)
+      : Buffer.from(base64Data, 'base64').toString('binary');
   const len = binaryString.length;
   const bytes = new Uint8Array(len);
   for (let i = 0; i < len; i++) {
     bytes[i] = binaryString.charCodeAt(i);
   }
 
-  const int16Array = new Int16Array(bytes.buffer);
+  const evenLen = len - (len % 2);
+  const int16Array = new Int16Array(bytes.buffer, 0, Math.floor(evenLen / 2));
   const frameCount = int16Array.length;
   const audioBuffer = audioContext.createBuffer(1, frameCount, sampleRate);
   const channelData = audioBuffer.getChannelData(0);

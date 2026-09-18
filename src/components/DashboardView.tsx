@@ -90,11 +90,11 @@ export const DashboardView: React.FC = () => {
           </div>
         </div>
 
-        {/* Phase 4 Active Status Notice */}
+        {/* Phase 4.1 Active Status Notice */}
         <div className="mt-6 rounded-xl border border-emerald-200 bg-emerald-50/70 p-4 text-xs text-emerald-950 flex items-start gap-3">
           <Sparkles className="h-4 w-4 text-emerald-700 shrink-0 mt-0.5" />
           <div>
-            <span className="font-semibold">Phase 4 Active:</span> Realtime Voice-to-Voice AI Agent powered by Gemini Live (gemini-3.8-live), bidirectional WebSocket audio relay, barge-in interruption, and non-clinical empathetic conversational guardrails are fully operational.
+            <span className="font-semibold">Phase 4.1 Active:</span> Realtime Voice-to-Voice AI Agent powered by Gemini Live (gemini-3.8-live), bidirectional WebSocket audio relay, barge-in interruption, and non-clinical empathetic conversational guardrails are fully operational.
           </div>
         </div>
 

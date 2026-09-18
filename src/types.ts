@@ -18,7 +18,11 @@ export interface HealthStatus {
   features: {
     rbacEnabled: boolean;
     googleAuthReady: boolean;
+    googleClientIdConfigured?: boolean;
     aiProviderReady: boolean;
+    realtimeVoiceReady?: boolean;
+    geminiLiveModel?: string;
     auditLoggingEnabled: boolean;
+    httpOnlyCookiesEnabled?: boolean;
   };
 }

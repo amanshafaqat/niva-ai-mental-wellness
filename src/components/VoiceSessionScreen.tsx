@@ -64,6 +64,7 @@ export const VoiceSessionScreen: React.FC<VoiceSessionScreenProps> = ({
   const timerIntervalRef = useRef<any>(null);
   const isMutedRef = useRef(false);
   const connectionStateRef = useRef<VoiceConnectionState>('DISCONNECTED');
+  const lastInterruptionTimeRef = useRef<number>(0);
 
   isMutedRef.current = isMuted;
   connectionStateRef.current = connectionState;
@@ -82,6 +83,26 @@ export const VoiceSessionScreen: React.FC<VoiceSessionScreenProps> = ({
       nextPlaybackTimeRef.current = audioContextRef.current.currentTime;
     }
   }, []);
+
+  // Centralized interruption handler with debounced counting and server notification
+  const triggerInterruption = useCallback((sendToServer = true) => {
+    stopAudioPlayback();
+    if (connectionStateRef.current !== 'MUTED' && connectionStateRef.current !== 'ENDED') {
+      setConnectionState('LISTENING');
+    }
+
+    const now = Date.now();
+    if (now - lastInterruptionTimeRef.current > 1500) {
+      lastInterruptionTimeRef.current = now;
+      setInterruptionCount((c) => c + 1);
+    }
+
+    if (sendToServer && wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      try {
+        wsRef.current.send(JSON.stringify({ type: 'INTERRUPT' } as ClientVoiceMessage));
+      } catch (err) {}
+    }
+  }, [stopAudioPlayback]);
 
   // Cleanup all audio resources & WebSockets
   const cleanupVoiceSession = useCallback(() => {
@@ -200,6 +221,10 @@ export const VoiceSessionScreen: React.FC<VoiceSessionScreenProps> = ({
         processorNodeRef.current = processor;
 
         processor.onaudioprocess = (e) => {
+          // Zero out output buffer to avoid echoing microphone input to speakers
+          const outputBuffer = e.outputBuffer.getChannelData(0);
+          outputBuffer.fill(0);
+
           if (isMutedRef.current || ws.readyState !== WebSocket.OPEN) {
             setMicAudioLevel(0);
             return;
@@ -217,12 +242,7 @@ export const VoiceSessionScreen: React.FC<VoiceSessionScreenProps> = ({
 
           // Genuine Barge-In: If user speaks above threshold while NIVA is speaking, interrupt immediately
           if (rms > 0.04 && connectionStateRef.current === 'SPEAKING') {
-            stopAudioPlayback();
-            setInterruptionCount((c) => c + 1);
-            setConnectionState('LISTENING');
-            try {
-              ws.send(JSON.stringify({ type: 'INTERRUPT' } as ClientVoiceMessage));
-            } catch (err) {}
+            triggerInterruption(true);
           }
 
           // Resample from hardware rate (e.g. 44.1kHz or 48kHz) to Gemini Live required 16,000 Hz
@@ -239,8 +259,11 @@ export const VoiceSessionScreen: React.FC<VoiceSessionScreenProps> = ({
           } catch (err) {}
         };
 
+        const silentGain = audioCtx.createGain();
+        silentGain.gain.value = 0;
         micSource.connect(processor);
-        processor.connect(audioCtx.destination);
+        processor.connect(silentGain);
+        silentGain.connect(audioCtx.destination);
       };
 
       ws.onmessage = async (event) => {
@@ -250,6 +273,11 @@ export const VoiceSessionScreen: React.FC<VoiceSessionScreenProps> = ({
           if (msg.type === 'CONNECTED') {
             setConnectionState('LISTENING');
           } else if (msg.type === 'AUDIO_CHUNK') {
+            // Discard stale in-flight audio chunks if interrupted recently
+            if (Date.now() - lastInterruptionTimeRef.current < 600) {
+              return;
+            }
+
             if (connectionStateRef.current !== 'MUTED') {
               setConnectionState('SPEAKING');
             }
@@ -281,11 +309,7 @@ export const VoiceSessionScreen: React.FC<VoiceSessionScreenProps> = ({
             }
           } else if (msg.type === 'INTERRUPTED') {
             // Server confirmed model output interrupted
-            stopAudioPlayback();
-            setInterruptionCount((c) => c + 1);
-            if (connectionStateRef.current !== 'MUTED') {
-              setConnectionState('LISTENING');
-            }
+            triggerInterruption(false);
           } else if (msg.type === 'TURN_COMPLETE') {
             if (scheduledAudioSourcesRef.current.length === 0) {
               if (connectionStateRef.current !== 'MUTED') {
@@ -336,12 +360,7 @@ export const VoiceSessionScreen: React.FC<VoiceSessionScreenProps> = ({
   }, []);
 
   const handleManualInterrupt = () => {
-    stopAudioPlayback();
-    setInterruptionCount((c) => c + 1);
-    setConnectionState('LISTENING');
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ type: 'INTERRUPT' } as ClientVoiceMessage));
-    }
+    triggerInterruption(true);
   };
 
   const handleToggleMute = () => {

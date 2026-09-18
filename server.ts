@@ -27,6 +27,7 @@ import {
   setupVoiceWebSocketServer,
   getVoiceSessionsForUser,
 } from './src/services/voice-engine';
+import { isDatabaseConnected } from './src/lib/prisma';
 import { UserPreferencesDto } from './shared/types/conversation';
 
 const app = express();
@@ -142,31 +143,41 @@ function getSessionFromRequest(req: express.Request): AuthSession | null {
 // ==============================================================================
 // 1. HEALTH CHECK ENDPOINTS
 // ==============================================================================
-const getHealthResponse = () => ({
-  status: 'ok',
-  service: 'niva-backend',
-  phase: 'Phase 4 - Realtime Voice-to-Voice AI Agent (Gemini Live)',
-  timestamp: new Date().toISOString(),
-  uptimeSeconds: Math.floor((Date.now() - START_TIME) / 1000),
-  environment: process.env.NODE_ENV || 'development',
-  database: {
-    connected: true,
-    provider: 'PostgreSQL (Prisma ORM)',
-  },
-  features: {
-    rbacEnabled: true,
-    googleAuthReady: Boolean(process.env.GOOGLE_CLIENT_ID),
-    googleClientIdConfigured: Boolean(process.env.GOOGLE_CLIENT_ID),
-    aiProviderReady: true,
-    realtimeVoiceReady: true,
-    geminiLiveModel: 'gemini-3.8-live',
-    auditLoggingEnabled: true,
-    httpOnlyCookiesEnabled: true,
-  },
-});
+const getHealthResponse = async () => {
+  const dbConnected = await isDatabaseConnected();
+  const apiKey = process.env.GEMINI_API_KEY;
+  const geminiReady = Boolean(apiKey && apiKey !== 'MY_GEMINI_API_KEY' && apiKey.trim().length > 0);
+  const clientId = process.env.GOOGLE_CLIENT_ID;
+  const googleReady = Boolean(clientId && !clientId.includes('your-google-client-id') && clientId.trim().length > 0);
 
-app.get('/health', (req, res) => res.json(getHealthResponse()));
-app.get('/api/health', (req, res) => res.json(getHealthResponse()));
+  const isDegraded = !dbConnected || !geminiReady;
+
+  return {
+    status: isDegraded ? ('degraded' as const) : ('ok' as const),
+    service: 'niva-backend',
+    phase: 'Phase 4.1 - Realtime Voice-to-Voice AI Agent (Gemini Live)',
+    timestamp: new Date().toISOString(),
+    uptimeSeconds: Math.floor((Date.now() - START_TIME) / 1000),
+    environment: process.env.NODE_ENV || 'development',
+    database: {
+      connected: dbConnected,
+      provider: 'PostgreSQL (Prisma ORM)',
+    },
+    features: {
+      rbacEnabled: true,
+      googleAuthReady: googleReady,
+      googleClientIdConfigured: googleReady,
+      aiProviderReady: geminiReady,
+      realtimeVoiceReady: geminiReady,
+      geminiLiveModel: 'gemini-3.8-live',
+      auditLoggingEnabled: true,
+      httpOnlyCookiesEnabled: true,
+    },
+  };
+};
+
+app.get('/health', async (req, res) => res.json(await getHealthResponse()));
+app.get('/api/health', async (req, res) => res.json(await getHealthResponse()));
 
 // ==============================================================================
 // 2. GOOGLE OAUTH & SESSION ENDPOINTS
@@ -1363,7 +1374,7 @@ async function startServer() {
   }
 
   httpServer.listen(PORT, '0.0.0.0', () => {
-    console.log(`🌿 NIVA Phase 4 Server running at http://localhost:${PORT}`);
+    console.log(`🌿 NIVA Phase 4.1 Server running at http://localhost:${PORT}`);
     console.log(`🎙️ Realtime Voice WebSocket: ws://localhost:${PORT}/live`);
     console.log(`🛡️ Health Check: http://localhost:${PORT}/health`);
     console.log(`📦 Project ZIP: http://localhost:${PORT}/api/download-zip`);

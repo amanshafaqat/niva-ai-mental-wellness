@@ -1,7 +1,7 @@
 {
   "name": "niva-monorepo",
   "private": true,
-  "version": "4.0.0-phase4",
+  "version": "4.1.0-phase4.1",
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
@@ -10,6 +10,7 @@
     "package": "tsx scripts/package-project.ts",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",
+    "test": "tsx tests/phase-4.1.test.ts",
     "contract:emit": "prisma contract emit"
   },
   "dependencies": {

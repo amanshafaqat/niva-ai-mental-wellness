@@ -75,7 +75,7 @@ export const HeroSection: React.FC<HeroSectionProps> = ({
               className="flex items-center gap-2 rounded-xl border border-stone-300 bg-white px-5 py-3 text-base font-medium text-stone-700 shadow-sm transition hover:bg-stone-50 hover:text-stone-900"
             >
               <FileCode2 className="h-4 w-4 text-stone-500" />
-              <span>Explore Phase 1 Architecture</span>
+              <span>Explore Phase 4.1 Architecture</span>
             </button>
           </div>
         </div>
@@ -106,7 +106,7 @@ export const HeroSection: React.FC<HeroSectionProps> = ({
             <h2 className="text-lg font-semibold text-stone-900">Role-Based Governance (RBAC)</h2>
             <p className="mt-2 text-sm text-stone-600 leading-relaxed">
               Structured around three clearly isolated roles: <strong>USER</strong>,{' '}
-              <strong>GUARDIAN</strong>, and <strong>ADMIN</strong>. Server-side NestJS guards
+              <strong>GUARDIAN</strong>, and <strong>ADMIN</strong>. Server-side role guards
               prevent unauthorized privilege escalation.
             </p>
             <div className="mt-4 flex items-center gap-1.5 text-xs font-medium text-amber-800">
@@ -122,8 +122,8 @@ export const HeroSection: React.FC<HeroSectionProps> = ({
             </div>
             <h2 className="text-lg font-semibold text-stone-900">Decoupled AI Engine Abstraction</h2>
             <p className="mt-2 text-sm text-stone-600 leading-relaxed">
-              Vendor-agnostic AI provider architecture. Decoupled interfaces ready for Phase 2 text
-              dialogue and Phase 3 realtime voice sessions without rewriting backend core services.
+              Vendor-agnostic AI provider architecture. Decoupled interfaces powering warm text
+              dialogue and Gemini Live 3.8 realtime voice sessions.
             </p>
             <div className="mt-4 flex items-center gap-1.5 text-xs font-medium text-blue-800">
               <CheckCircle2 className="h-3.5 w-3.5" />
@@ -147,10 +147,16 @@ export const HeroSection: React.FC<HeroSectionProps> = ({
               </p>
             </div>
             <div className="shrink-0 flex items-center gap-3">
-              <div className="rounded-xl border border-stone-300 bg-white px-4 py-3 text-center">
+              <a
+                href="https://findahelpline.com"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="rounded-xl border border-stone-300 bg-white px-4 py-3 text-center transition hover:border-stone-400 hover:shadow-xs"
+              >
                 <div className="text-xs text-stone-500 font-medium">Crisis Protocol</div>
-                <div className="text-lg font-bold text-emerald-800">Lifeline 988</div>
-              </div>
+                <div className="text-base font-bold text-emerald-800">Global Support</div>
+                <div className="text-[10px] text-stone-400 mt-0.5">findahelpline.com</div>
+              </a>
             </div>
           </div>
         </div>

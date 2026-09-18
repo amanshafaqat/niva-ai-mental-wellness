@@ -1,5 +1,5 @@
 export enum AuditAction {
-  // Phase 1 Actions
+  // Authentication & Security Governance Actions
   USER_LOGIN_SUCCESS = 'USER_LOGIN_SUCCESS',
   USER_LOGIN_FAILED = 'USER_LOGIN_FAILED',
   USER_LOGOUT = 'USER_LOGOUT',

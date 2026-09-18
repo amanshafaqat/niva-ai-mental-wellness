@@ -36,7 +36,7 @@ export const SystemHealthWidget: React.FC = () => {
             <span>NIVA System Health & Baseline Telemetry</span>
           </h3>
           <p className="mt-1 text-xs text-stone-600">
-            Real-time status returned directly from the NestJS backend endpoint <code className="font-mono bg-stone-100 px-1 py-0.5 rounded text-stone-800">GET /health</code>.
+            Real-time status returned directly from the server endpoint <code className="font-mono bg-stone-100 px-1 py-0.5 rounded text-stone-800">GET /health</code>.
           </p>
         </div>
 
@@ -64,9 +64,15 @@ export const SystemHealthWidget: React.FC = () => {
                 Service Status
               </div>
               <div className="mt-1 flex items-center gap-2">
-                <span className="flex h-2.5 w-2.5 rounded-full bg-emerald-700 animate-pulse" />
+                <span
+                  className={`flex h-2.5 w-2.5 rounded-full ${
+                    health.status === 'ok'
+                      ? 'bg-emerald-700 animate-pulse'
+                      : 'bg-amber-600'
+                  }`}
+                />
                 <span className="text-sm font-semibold text-stone-900 capitalize">
-                  {health.status} (Phase 1)
+                  {health.status} (Phase 4.1)
                 </span>
               </div>
               <div className="text-[10px] text-stone-500 mt-1">{health.service}</div>
@@ -78,21 +84,22 @@ export const SystemHealthWidget: React.FC = () => {
                 Database ORM
               </div>
               <div className="mt-1 flex items-center gap-1.5 text-sm font-semibold text-stone-900">
-                <Database className="h-4 w-4 text-emerald-800" />
-                <span>Prisma Client</span>
+                <Database className={`h-4 w-4 ${health.database.connected ? 'text-emerald-800' : 'text-amber-700'}`} />
+                <span>{health.database.connected ? 'Prisma (Connected)' : 'Fallback (In-Memory)'}</span>
               </div>
               <div className="text-[10px] text-stone-500 mt-1">{health.database.provider}</div>
             </div>
 
-            {/* Uptime */}
+            {/* Realtime Voice */}
             <div className="rounded-xl border border-stone-200 bg-stone-50/70 p-3.5">
               <div className="text-[11px] font-semibold text-stone-500 uppercase tracking-wider">
-                Server Uptime
+                Gemini Live Voice
               </div>
-              <div className="mt-1 text-sm font-semibold text-stone-900 font-mono">
-                {health.uptimeSeconds}s
+              <div className="mt-1 flex items-center gap-1.5 text-sm font-semibold text-stone-900">
+                <Activity className={`h-4 w-4 ${health.features.realtimeVoiceReady ? 'text-emerald-800' : 'text-amber-700'}`} />
+                <span>{health.features.realtimeVoiceReady ? 'Ready (gemini-3.8-live)' : 'Awaiting API Key'}</span>
               </div>
-              <div className="text-[10px] text-stone-500 mt-1">Environment: {health.environment}</div>
+              <div className="text-[10px] text-stone-500 mt-1">Voice: Zephyr (PCM 16k/24k)</div>
             </div>
 
             {/* Security */}
@@ -104,7 +111,7 @@ export const SystemHealthWidget: React.FC = () => {
                 <Shield className="h-4 w-4" />
                 <span>Enforced</span>
               </div>
-              <div className="text-[10px] text-stone-500 mt-1">Google OAuth + RolesGuard</div>
+              <div className="text-[10px] text-stone-500 mt-1">Crypto Tickets + RBAC</div>
             </div>
           </div>
 
