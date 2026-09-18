@@ -10,7 +10,7 @@ export default defineConfig(() => {
       alias: {
         '@': path.resolve(__dirname, '.'),
         '@shared': path.resolve(__dirname, './shared'),
-        '@frontend': path.resolve(__dirname, './frontend/src'),
+        '@frontend': path.resolve(__dirname, './src'),
       },
     },
     server: {

@@ -1,13 +1,13 @@
 /**
- * NIVA Dedicated Realtime Voice Experience Component (Phase 4)
- * Native Audio Voice-to-Voice Powered by Gemini Live API (gemini-3.8-live)
+ * NIVA Dedicated Realtime Voice Experience Component (Phase 4.1)
+ * Native Audio Voice-to-Voice Powered by Google Gemini Live API (gemini-3.8-live)
  *
  * Core Features:
  * - Dedicated immersive visual presence (Calm ambient breathing orb)
- * - Microphone capture @ 16kHz PCM
- * - Realtime bidirectional WebSocket relay (/live)
- * - Live state indicators: CONNECTING, LISTENING, SPEAKING, INTERRUPTING, MUTED
- * - Native audio playback @ 24kHz with instant interruption (barge-in)
+ * - Microphone capture with client-side linear resampling to 16kHz PCM
+ * - Realtime bidirectional WebSocket relay (/live) using ephemeral voice ticket
+ * - Strict canonical VoiceConnectionState: DISCONNECTED, REQUESTING_MIC, CONNECTING, LISTENING, SPEAKING, MUTED, ENDED, ERROR
+ * - Native audio playback @ 24kHz with genuine instant barge-in interruption
  * - Microphone mute / unmute toggle
  * - Manual interrupt button & speech barge-in detection
  * - Direct association with user's wellness session
@@ -19,23 +19,19 @@ import {
   MicOff,
   PhoneOff,
   Volume2,
-  VolumeX,
-  Sparkles,
   AlertCircle,
   Hand,
   Shield,
   Radio,
   Clock,
-  CheckCircle2,
 } from 'lucide-react';
 import {
   VoiceConnectionState,
-  VoiceSessionStatus,
   VoiceTicketResponseDto,
   ClientVoiceMessage,
   ServerVoiceMessage,
 } from '@shared/types/voice';
-import { floatTo16BitPCMBase64, base64PCMToAudioBuffer } from '@/src/utils/audio-pcm';
+import { floatTo16BitPCMBase64, base64PCMToAudioBuffer, resampleTo16kHz } from '../utils/audio-pcm';
 
 interface VoiceSessionScreenProps {
   conversationId: string;
@@ -50,13 +46,12 @@ export const VoiceSessionScreen: React.FC<VoiceSessionScreenProps> = ({
   onClose,
   onEndSession,
 }) => {
-  const [connectionState, setConnectionState] = useState<VoiceConnectionState>('IDLE');
+  const [connectionState, setConnectionState] = useState<VoiceConnectionState>('DISCONNECTED');
   const [isMuted, setIsMuted] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [durationSeconds, setDurationSeconds] = useState(0);
   const [interruptionCount, setInterruptionCount] = useState(0);
   const [micAudioLevel, setMicAudioLevel] = useState(0);
-  const [speakerAudioLevel, setSpeakerAudioLevel] = useState(0);
 
   // Audio Context & Stream Refs
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -68,8 +63,10 @@ export const VoiceSessionScreen: React.FC<VoiceSessionScreenProps> = ({
   const nextPlaybackTimeRef = useRef<number>(0);
   const timerIntervalRef = useRef<any>(null);
   const isMutedRef = useRef(false);
+  const connectionStateRef = useRef<VoiceConnectionState>('DISCONNECTED');
 
   isMutedRef.current = isMuted;
+  connectionStateRef.current = connectionState;
 
   // Stop current audio playback queue immediately (barge-in / interruption)
   const stopAudioPlayback = useCallback(() => {
@@ -135,7 +132,7 @@ export const VoiceSessionScreen: React.FC<VoiceSessionScreenProps> = ({
   // Connect and start voice session
   const startVoiceSession = async () => {
     setErrorMessage(null);
-    setConnectionState('CONNECTING');
+    setConnectionState('REQUESTING_MIC');
 
     try {
       // 1. Request microphone permission
@@ -144,7 +141,6 @@ export const VoiceSessionScreen: React.FC<VoiceSessionScreenProps> = ({
         micStream = await navigator.mediaDevices.getUserMedia({
           audio: {
             channelCount: 1,
-            sampleRate: 16000,
             echoCancellation: true,
             noiseSuppression: true,
             autoGainControl: true,
@@ -159,7 +155,9 @@ export const VoiceSessionScreen: React.FC<VoiceSessionScreenProps> = ({
         return;
       }
 
-      // 2. Obtain short-lived voice ticket from backend
+      setConnectionState('CONNECTING');
+
+      // 2. Obtain short-lived single-use voice ticket from backend (authenticated session)
       const ticketRes = await fetch(`/api/conversations/${conversationId}/voice-ticket`, {
         method: 'POST',
         credentials: 'include',
@@ -172,9 +170,9 @@ export const VoiceSessionScreen: React.FC<VoiceSessionScreenProps> = ({
 
       const ticketData: VoiceTicketResponseDto = await ticketRes.json();
 
-      // 3. Setup Web Audio Context (sampleRate 16000 or default)
+      // 3. Setup Web Audio Context
       const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-      const audioCtx = new AudioCtx({ sampleRate: 16000 });
+      const audioCtx = new AudioCtx();
       audioContextRef.current = audioCtx;
       nextPlaybackTimeRef.current = audioCtx.currentTime;
 
@@ -185,8 +183,10 @@ export const VoiceSessionScreen: React.FC<VoiceSessionScreenProps> = ({
       wsRef.current = ws;
 
       ws.onopen = () => {
-        setConnectionState('CONNECTED');
-        // Start duration counter
+        // Connected to relay, start in LISTENING state
+        setConnectionState('LISTENING');
+
+        // Start duration timer
         timerIntervalRef.current = setInterval(() => {
           setDurationSeconds((sec) => sec + 1);
         }, 1000);
@@ -195,7 +195,7 @@ export const VoiceSessionScreen: React.FC<VoiceSessionScreenProps> = ({
         const micSource = audioCtx.createMediaStreamSource(micStream);
         micSourceNodeRef.current = micSource;
 
-        // Use ScriptProcessorNode (bufferSize 2048 or 4096) for streaming raw 16kHz PCM chunks
+        // Use ScriptProcessorNode (bufferSize 4096) for streaming audio chunks
         const processor = audioCtx.createScriptProcessor(4096, 1, 1);
         processorNodeRef.current = processor;
 
@@ -205,37 +205,42 @@ export const VoiceSessionScreen: React.FC<VoiceSessionScreenProps> = ({
             return;
           }
 
-          const inputData = e.inputBuffer.getChannelData(0);
+          const rawInputData = e.inputBuffer.getChannelData(0);
 
-          // Calculate visual RMS audio level
+          // Calculate visual RMS audio level for feedback
           let sumSquares = 0;
-          for (let i = 0; i < inputData.length; i++) {
-            sumSquares += inputData[i] * inputData[i];
+          for (let i = 0; i < rawInputData.length; i++) {
+            sumSquares += rawInputData[i] * rawInputData[i];
           }
-          const rms = Math.sqrt(sumSquares / inputData.length);
+          const rms = Math.sqrt(sumSquares / rawInputData.length);
           setMicAudioLevel(Math.min(1, rms * 4));
 
-          // If user speaks noticeably above threshold while NIVA is speaking, trigger barge-in interrupt
-          if (rms > 0.04 && connectionState === 'SPEAKING') {
+          // Genuine Barge-In: If user speaks above threshold while NIVA is speaking, interrupt immediately
+          if (rms > 0.04 && connectionStateRef.current === 'SPEAKING') {
             stopAudioPlayback();
             setInterruptionCount((c) => c + 1);
-            setConnectionState('INTERRUPTING');
-            ws.send(JSON.stringify({ type: 'INTERRUPT' } as ClientVoiceMessage));
+            setConnectionState('LISTENING');
+            try {
+              ws.send(JSON.stringify({ type: 'INTERRUPT' } as ClientVoiceMessage));
+            } catch (err) {}
           }
 
-          // Encode to 16-bit linear PCM and send
-          const base64Pcm = floatTo16BitPCMBase64(inputData);
-          ws.send(
-            JSON.stringify({
-              type: 'AUDIO_CHUNK',
-              audio: base64Pcm,
-            } as ClientVoiceMessage),
-          );
+          // Resample from hardware rate (e.g. 44.1kHz or 48kHz) to Gemini Live required 16,000 Hz
+          const resampled16k = resampleTo16kHz(rawInputData, audioCtx.sampleRate, 16000);
+          const base64Pcm = floatTo16BitPCMBase64(resampled16k);
+
+          try {
+            ws.send(
+              JSON.stringify({
+                type: 'AUDIO_CHUNK',
+                audio: base64Pcm,
+              } as ClientVoiceMessage),
+            );
+          } catch (err) {}
         };
 
         micSource.connect(processor);
         processor.connect(audioCtx.destination);
-        setConnectionState('LISTENING');
       };
 
       ws.onmessage = async (event) => {
@@ -245,7 +250,9 @@ export const VoiceSessionScreen: React.FC<VoiceSessionScreenProps> = ({
           if (msg.type === 'CONNECTED') {
             setConnectionState('LISTENING');
           } else if (msg.type === 'AUDIO_CHUNK') {
-            setConnectionState('SPEAKING');
+            if (connectionStateRef.current !== 'MUTED') {
+              setConnectionState('SPEAKING');
+            }
 
             if (audioContextRef.current && msg.audio) {
               const audioBuffer = base64PCMToAudioBuffer(msg.audio, audioContextRef.current, 24000);
@@ -259,7 +266,6 @@ export const VoiceSessionScreen: React.FC<VoiceSessionScreenProps> = ({
               nextPlaybackTimeRef.current = startTime + audioBuffer.duration;
 
               scheduledAudioSourcesRef.current.push(source);
-              setSpeakerAudioLevel(0.7);
 
               source.onended = () => {
                 const index = scheduledAudioSourcesRef.current.indexOf(source);
@@ -267,18 +273,24 @@ export const VoiceSessionScreen: React.FC<VoiceSessionScreenProps> = ({
                   scheduledAudioSourcesRef.current.splice(index, 1);
                 }
                 if (scheduledAudioSourcesRef.current.length === 0) {
-                  setSpeakerAudioLevel(0);
-                  setConnectionState('LISTENING');
+                  if (connectionStateRef.current !== 'MUTED' && connectionStateRef.current !== 'ENDED') {
+                    setConnectionState('LISTENING');
+                  }
                 }
               };
             }
           } else if (msg.type === 'INTERRUPTED') {
+            // Server confirmed model output interrupted
             stopAudioPlayback();
             setInterruptionCount((c) => c + 1);
-            setConnectionState('LISTENING');
+            if (connectionStateRef.current !== 'MUTED') {
+              setConnectionState('LISTENING');
+            }
           } else if (msg.type === 'TURN_COMPLETE') {
             if (scheduledAudioSourcesRef.current.length === 0) {
-              setConnectionState('LISTENING');
+              if (connectionStateRef.current !== 'MUTED') {
+                setConnectionState('LISTENING');
+              }
             }
           } else if (msg.type === 'ERROR') {
             setErrorMessage(msg.message);
@@ -297,13 +309,13 @@ export const VoiceSessionScreen: React.FC<VoiceSessionScreenProps> = ({
 
       ws.onerror = (err) => {
         console.error('WebSocket connection error:', err);
-        setErrorMessage("I couldn't connect to NIVA's voice session. Please try again.");
+        setErrorMessage("I couldn't connect to NIVA's voice session. Realtime service is not configured or reachable.");
         setConnectionState('ERROR');
         cleanupVoiceSession();
       };
 
       ws.onclose = () => {
-        if (connectionState !== 'ENDED' && connectionState !== 'ERROR') {
+        if (connectionStateRef.current !== 'ENDED' && connectionStateRef.current !== 'ERROR') {
           setConnectionState('ENDED');
         }
         cleanupVoiceSession();
@@ -326,19 +338,25 @@ export const VoiceSessionScreen: React.FC<VoiceSessionScreenProps> = ({
   const handleManualInterrupt = () => {
     stopAudioPlayback();
     setInterruptionCount((c) => c + 1);
-    setConnectionState('INTERRUPTING');
+    setConnectionState('LISTENING');
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({ type: 'INTERRUPT' } as ClientVoiceMessage));
     }
-    setTimeout(() => {
-      if (connectionState !== 'ENDED' && connectionState !== 'ERROR') {
-        setConnectionState('LISTENING');
-      }
-    }, 400);
   };
 
   const handleToggleMute = () => {
-    setIsMuted((prev) => !prev);
+    setIsMuted((prev) => {
+      const nextMuted = !prev;
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        wsRef.current.send(JSON.stringify({ type: 'MUTE', muted: nextMuted } as ClientVoiceMessage));
+      }
+      if (nextMuted) {
+        setConnectionState('MUTED');
+      } else {
+        setConnectionState('LISTENING');
+      }
+      return nextMuted;
+    });
   };
 
   const handleEndSession = () => {
@@ -406,15 +424,15 @@ export const VoiceSessionScreen: React.FC<VoiceSessionScreenProps> = ({
               ? 'bg-emerald-500/20 scale-125'
               : connectionState === 'LISTENING'
               ? 'bg-teal-500/15 scale-100'
-              : connectionState === 'INTERRUPTING'
-              ? 'bg-amber-500/20 scale-110'
+              : connectionState === 'MUTED'
+              ? 'bg-amber-500/10 scale-90'
               : 'bg-stone-700/10 scale-90'
           }`}
         />
 
         {/* Central Organic Audio Orb */}
         <div className="relative flex items-center justify-center my-8">
-          {/* Animated concentric ripples */}
+          {/* Animated concentric ripples during speaking */}
           {connectionState === 'SPEAKING' && (
             <>
               <div className="absolute h-48 w-48 rounded-full border border-emerald-500/40 animate-ping opacity-30 pointer-events-none" />
@@ -422,7 +440,8 @@ export const VoiceSessionScreen: React.FC<VoiceSessionScreenProps> = ({
             </>
           )}
 
-          {connectionState === 'LISTENING' && !isMuted && micAudioLevel > 0.05 && (
+          {/* Microphone reactive ring during listening */}
+          {connectionState === 'LISTENING' && micAudioLevel > 0.05 && (
             <div
               className="absolute rounded-full border border-teal-400/40 pointer-events-none transition-all duration-75"
               style={{
@@ -438,28 +457,22 @@ export const VoiceSessionScreen: React.FC<VoiceSessionScreenProps> = ({
               connectionState === 'SPEAKING'
                 ? 'bg-gradient-to-tr from-emerald-600 via-teal-500 to-emerald-400 shadow-emerald-500/30 scale-105'
                 : connectionState === 'LISTENING'
-                ? isMuted
-                  ? 'bg-gradient-to-tr from-stone-800 to-stone-700 border border-stone-600'
-                  : 'bg-gradient-to-tr from-teal-700 via-emerald-700 to-stone-800 shadow-teal-500/20'
-                : connectionState === 'INTERRUPTING'
-                ? 'bg-gradient-to-tr from-amber-600 to-amber-500 shadow-amber-500/30 scale-95'
-                : connectionState === 'CONNECTING'
+                ? 'bg-gradient-to-tr from-teal-700 via-emerald-700 to-stone-800 shadow-teal-500/20'
+                : connectionState === 'MUTED'
+                ? 'bg-gradient-to-tr from-stone-800 to-amber-950 border border-amber-700/40'
+                : connectionState === 'CONNECTING' || connectionState === 'REQUESTING_MIC'
                 ? 'bg-gradient-to-tr from-stone-800 to-stone-700 animate-pulse'
                 : 'bg-stone-800 border border-stone-700'
             }`}
           >
             {connectionState === 'SPEAKING' ? (
-              <Volume2 className="h-14 w-14 text-white animate-bounce" />
+              <Volume2 className="h-14 w-14 text-white animate-pulse" />
             ) : connectionState === 'LISTENING' ? (
-              isMuted ? (
-                <MicOff className="h-12 w-12 text-stone-400" />
-              ) : (
-                <Mic className="h-14 w-14 text-teal-200 animate-pulse" />
-              )
-            ) : connectionState === 'INTERRUPTING' ? (
-              <Hand className="h-12 w-12 text-white animate-pulse" />
+              <Mic className="h-14 w-14 text-teal-200 animate-pulse" />
+            ) : connectionState === 'MUTED' ? (
+              <MicOff className="h-12 w-12 text-amber-300" />
             ) : (
-              <Sparkles className="h-12 w-12 text-stone-400" />
+              <Radio className="h-12 w-12 text-stone-400 animate-pulse" />
             )}
           </div>
         </div>
@@ -472,39 +485,39 @@ export const VoiceSessionScreen: React.FC<VoiceSessionScreenProps> = ({
                 connectionState === 'SPEAKING'
                   ? 'bg-emerald-400 animate-pulse'
                   : connectionState === 'LISTENING'
-                  ? isMuted
-                    ? 'bg-stone-500'
-                    : 'bg-teal-400 animate-ping'
-                  : connectionState === 'INTERRUPTING'
+                  ? 'bg-teal-400 animate-ping'
+                  : connectionState === 'MUTED'
                   ? 'bg-amber-400'
-                  : connectionState === 'CONNECTING'
+                  : connectionState === 'CONNECTING' || connectionState === 'REQUESTING_MIC'
                   ? 'bg-blue-400 animate-spin'
                   : 'bg-stone-500'
               }`}
             />
             <span className="text-stone-200">
+              {connectionState === 'DISCONNECTED' && 'Ready to Connect'}
+              {connectionState === 'REQUESTING_MIC' && 'Requesting Microphone...'}
               {connectionState === 'CONNECTING' && 'Connecting to NIVA...'}
-              {connectionState === 'CONNECTED' && 'Connected'}
-              {connectionState === 'LISTENING' && (isMuted ? 'Microphone Muted' : 'Listening...')}
+              {connectionState === 'LISTENING' && 'Listening...'}
               {connectionState === 'SPEAKING' && 'NIVA is Speaking'}
-              {connectionState === 'INTERRUPTING' && 'Yielding to you...'}
+              {connectionState === 'MUTED' && 'Microphone Muted'}
               {connectionState === 'ENDED' && 'Voice Session Ended'}
               {connectionState === 'ERROR' && 'Connection Issue'}
             </span>
           </div>
 
           <p className="text-sm text-stone-400 leading-relaxed">
-            {connectionState === 'LISTENING' && !isMuted && 'Speak naturally. You can interrupt NIVA anytime while it talks.'}
-            {connectionState === 'LISTENING' && isMuted && 'Unmute your microphone when you are ready to talk.'}
-            {connectionState === 'SPEAKING' && 'NIVA is responding warmly. Just start speaking to interrupt.'}
-            {connectionState === 'INTERRUPTING' && 'Stopping speech immediately for you.'}
-            {connectionState === 'CONNECTING' && 'Setting up low-latency native audio stream...'}
+            {connectionState === 'LISTENING' && 'Speak naturally. You can interrupt NIVA anytime while it talks.'}
+            {connectionState === 'MUTED' && 'Unmute your microphone when you are ready to speak.'}
+            {connectionState === 'SPEAKING' && 'NIVA is responding warmly. Just speak to naturally interrupt.'}
+            {connectionState === 'REQUESTING_MIC' && 'Please allow microphone access in your browser prompt.'}
+            {connectionState === 'CONNECTING' && 'Setting up low-latency native audio stream with gemini-3.8-live...'}
             {connectionState === 'ENDED' && 'Your voice conversation is preserved in your wellness session.'}
+            {connectionState === 'ERROR' && 'Unable to establish realtime voice connection.'}
           </p>
 
           {interruptionCount > 0 && (
             <div className="text-[11px] text-stone-500 font-medium">
-              Interrupted & yielded {interruptionCount} time{interruptionCount === 1 ? '' : 's'}
+              Natural interruptions: {interruptionCount}
             </div>
           )}
 
@@ -523,16 +536,16 @@ export const VoiceSessionScreen: React.FC<VoiceSessionScreenProps> = ({
           {/* Mute/Unmute Toggle */}
           <button
             onClick={handleToggleMute}
-            disabled={connectionState === 'ENDED' || connectionState === 'CONNECTING'}
+            disabled={connectionState === 'ENDED' || connectionState === 'CONNECTING' || connectionState === 'REQUESTING_MIC'}
             className={`flex flex-col items-center gap-1.5 p-3.5 rounded-2xl border transition-all ${
-              isMuted
+              connectionState === 'MUTED'
                 ? 'border-amber-500/50 bg-amber-950/40 text-amber-300 hover:bg-amber-950/60'
                 : 'border-stone-700 bg-stone-800 text-stone-200 hover:bg-stone-700'
             }`}
-            title={isMuted ? 'Unmute microphone' : 'Mute microphone'}
+            title={connectionState === 'MUTED' ? 'Unmute microphone' : 'Mute microphone'}
           >
-            {isMuted ? <MicOff className="h-6 w-6" /> : <Mic className="h-6 w-6" />}
-            <span className="text-[11px] font-medium">{isMuted ? 'Unmute' : 'Mute'}</span>
+            {connectionState === 'MUTED' ? <MicOff className="h-6 w-6" /> : <Mic className="h-6 w-6" />}
+            <span className="text-[11px] font-medium">{connectionState === 'MUTED' ? 'Unmute' : 'Mute'}</span>
           </button>
 
           {/* Central Interrupt / Barge-In Button */}

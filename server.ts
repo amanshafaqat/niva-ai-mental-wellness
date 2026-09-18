@@ -25,6 +25,7 @@ import {
   createVoiceTicket,
   checkVoiceTicketRateLimit,
   setupVoiceWebSocketServer,
+  getVoiceSessionsForUser,
 } from './src/services/voice-engine';
 import { UserPreferencesDto } from './shared/types/conversation';
 
@@ -1276,12 +1277,34 @@ const handleCreateVoiceTicket = async (req: express.Request, res: express.Respon
     });
   }
 
-  const ticketData = createVoiceTicket(session.user, conv);
+  const ticketData = await createVoiceTicket(session.user, conv);
   res.json(ticketData);
 };
 
 app.post('/conversations/:id/voice-ticket', handleCreateVoiceTicket);
 app.post('/api/conversations/:id/voice-ticket', handleCreateVoiceTicket);
+
+/**
+ * GET /api/voice/sessions
+ * Returns user's persistent voice session history from Prisma
+ */
+app.get('/api/voice/sessions', async (req, res) => {
+  const session = getSessionFromRequest(req);
+  if (!session) {
+    return res.status(401).json({
+      success: false,
+      statusCode: 401,
+      errorCode: 'UNAUTHORIZED',
+      message: 'Authentication required',
+    });
+  }
+
+  const sessions = await getVoiceSessionsForUser(session.user.id);
+  res.json({
+    success: true,
+    sessions,
+  });
+});
 
 /**
  * GET /api/voice/metrics

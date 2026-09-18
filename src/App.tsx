@@ -4,15 +4,15 @@
  */
 
 import React, { useState } from 'react';
-import { AuthProvider } from '@frontend/lib/auth-context';
-import { DisclaimerBanner } from '@frontend/components/DisclaimerBanner';
-import { Navbar } from '@frontend/components/Navbar';
-import { HeroSection } from '@frontend/components/HeroSection';
-import { DashboardView } from '@frontend/components/DashboardView';
-import { ArchitectureViewer } from '@frontend/components/ArchitectureViewer';
-import { SystemHealthWidget } from '@frontend/components/SystemHealthWidget';
-import { GoogleSignInModal } from '@frontend/components/GoogleSignInModal';
-import { DownloadZipModal } from '@frontend/components/DownloadZipModal';
+import { AuthProvider } from './lib/auth-context';
+import { DisclaimerBanner } from './components/DisclaimerBanner';
+import { Navbar } from './components/Navbar';
+import { HeroSection } from './components/HeroSection';
+import { DashboardView } from './components/DashboardView';
+import { ArchitectureViewer } from './components/ArchitectureViewer';
+import { SystemHealthWidget } from './components/SystemHealthWidget';
+import { GoogleSignInModal } from './components/GoogleSignInModal';
+import { DownloadZipModal } from './components/DownloadZipModal';
 import { Sparkles, Shield } from 'lucide-react';
 
 export default function App() {

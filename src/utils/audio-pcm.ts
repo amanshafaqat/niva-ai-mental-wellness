@@ -1,11 +1,39 @@
 /**
- * Audio PCM conversion utilities for Gemini Live API
- * Input: Float32Array from microphone (16kHz) -> 16-bit linear PCM base64
- * Output: 16-bit linear PCM base64 (24kHz) -> AudioBuffer / playback
+ * Audio PCM conversion and resampling utilities for Google Gemini Live API
+ * Input requirement: 16-bit linear PCM, mono, 16,000 Hz, base64 encoded
+ * Output requirement: 16-bit linear PCM, mono, 24,000 Hz, base64 encoded
  */
 
 /**
- * Converts Float32Array audio buffer to 16-bit linear PCM base64
+ * Resamples a Float32Array from an arbitrary browser sample rate (e.g. 44.1kHz, 48kHz)
+ * down or up to target sample rate (default: 16000 Hz for Gemini Live) using linear interpolation.
+ */
+export function resampleTo16kHz(
+  input: Float32Array,
+  fromSampleRate: number,
+  toSampleRate = 16000,
+): Float32Array {
+  if (fromSampleRate === toSampleRate || input.length === 0) {
+    return input;
+  }
+
+  const ratio = fromSampleRate / toSampleRate;
+  const outputLength = Math.round(input.length / ratio);
+  const output = new Float32Array(outputLength);
+
+  for (let i = 0; i < outputLength; i++) {
+    const srcIndex = i * ratio;
+    const indexFloor = Math.floor(srcIndex);
+    const indexCeil = Math.min(input.length - 1, indexFloor + 1);
+    const fraction = srcIndex - indexFloor;
+    output[i] = input[indexFloor] * (1 - fraction) + input[indexCeil] * fraction;
+  }
+
+  return output;
+}
+
+/**
+ * Converts Float32Array audio buffer [-1.0, 1.0] to 16-bit linear PCM base64 (little-endian)
  */
 export function floatTo16BitPCMBase64(input: Float32Array): string {
   const buffer = new ArrayBuffer(input.length * 2);

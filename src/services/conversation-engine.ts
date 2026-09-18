@@ -105,7 +105,7 @@ export function evaluateInputSafety(text: string): {
       return {
         isSafe: false,
         blockedResponse:
-          "I hear how much pain you are in right now, but I cannot provide instructions related to self-harm. Please reach out to someone who can help keep you safe. You can connect with the 988 Suicide & Crisis Lifeline by calling or texting 988 (free and confidential), or call your local emergency services right away. You don't have to face this alone.",
+          "I hear how much pain you are in right now, and I care about your safety. Because I am an AI wellness companion and cannot provide emergency or medical care, please reach out immediately to a trusted person, your local emergency services, or an international crisis lifeline in your area (such as findahelpline.com, or your local crisis helpline). You do not have to face this alone.",
       };
     }
   }
@@ -158,8 +158,7 @@ export async function generateNivaReply(
 ): Promise<string> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
-    // If no key is set in environment, provide gentle fallback
-    return "I'm here with you and listening. What feels like the heaviest part of your day today?";
+    throw new Error('GEMINI_API_KEY is not configured on the server. AI conversational features are currently unavailable.');
   }
 
   const ai = new GoogleGenAI({

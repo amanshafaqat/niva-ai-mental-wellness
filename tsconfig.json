@@ -23,7 +23,7 @@
         "./shared/*"
       ],
       "@frontend/*": [
-        "./frontend/src/*"
+        "./src/*"
       ]
     },
     "allowImportingTsExtensions": true,
@@ -35,7 +35,6 @@
   },
   "include": [
     "src/**/*",
-    "frontend/src/**/*",
     "shared/**/*",
     "scripts/**/*",
     "server.ts"
