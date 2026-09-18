@@ -71,9 +71,9 @@ export async function generateProjectZipBuffer(rootDir = process.cwd()): Promise
 }
 
 async function main() {
-  console.log('📦 Packaging NIVA Phase 2 Monorepo...');
+  console.log('📦 Packaging NIVA Phase 4 Monorepo...');
   const buffer = await generateProjectZipBuffer(process.cwd());
-  const outputPath = path.join(process.cwd(), 'niva-phase-2.zip');
+  const outputPath = path.join(process.cwd(), 'niva-phase-4.zip');
   fs.writeFileSync(outputPath, buffer);
   console.log(`✅ Package generated successfully at: ${outputPath} (${(buffer.length / 1024).toFixed(1)} KB)`);
 }

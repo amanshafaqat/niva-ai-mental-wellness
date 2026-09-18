@@ -88,7 +88,7 @@ function logAuditEvent(
   req?: express.Request,
 ) {
   const entry: AuditLogEntry = {
-    id: `audit-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+    id: `audit-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`,
     userId: userId || null,
     action,
     entityType,

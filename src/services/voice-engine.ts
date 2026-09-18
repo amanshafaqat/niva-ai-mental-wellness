@@ -5,6 +5,7 @@
  */
 
 import { GoogleGenAI, LiveServerMessage, Modality } from '@google/genai';
+import * as crypto from 'crypto';
 import { WebSocket, WebSocketServer } from 'ws';
 import { IncomingMessage } from 'http';
 import { AuthSession } from '../../shared/types/auth';
@@ -80,8 +81,8 @@ export function createVoiceTicket(
   user: AuthSession['user'],
   conversation: InMemoryConversation,
 ): VoiceTicketResponseDto {
-  const ticket = `vtkt_${Date.now()}_${Math.random().toString(36).substring(2, 12)}`;
-  const voiceSessionId = `vsess_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+  const ticket = `vtkt_${Date.now()}_${crypto.randomBytes(12).toString('hex')}`;
+  const voiceSessionId = `vsess_${Date.now()}_${crypto.randomBytes(8).toString('hex')}`;
   const expiresAt = Date.now() + 60 * 1000; // 60 seconds validity
 
   const voiceSession: InMemoryVoiceSession = {
@@ -266,7 +267,14 @@ export function setupVoiceWebSocketServer(wss: WebSocketServer) {
       }
 
       // 2. Initialize Gemini Live connection with gemini-3.8-live
-      const ai = new GoogleGenAI({ apiKey });
+      const ai = new GoogleGenAI({
+        apiKey,
+        httpOptions: {
+          headers: {
+            'User-Agent': 'aistudio-build',
+          },
+        },
+      });
       const systemInstruction = buildNivaVoiceSystemPrompt(ticketAuth.userId);
 
       // Notify client we are connected

@@ -44,6 +44,7 @@
     "node_modules",
     "dist",
     "backend",
-    "prisma"
+    "prisma",
+    "src/prisma"
   ]
 }

@@ -90,6 +90,14 @@ export function evaluateInputSafety(text: string): {
     'how to overdose',
     'how to cut my wrist',
     'how to make a bomb',
+    'kill myself',
+    'commit suicide',
+    'end my life',
+    'hang myself',
+    'slit my wrist',
+    'want to die',
+    'suicidal thoughts',
+    'thinking of suicide',
   ];
 
   for (const phrase of severeHarmKeywords) {
@@ -154,7 +162,14 @@ export async function generateNivaReply(
     return "I'm here with you and listening. What feels like the heaviest part of your day today?";
   }
 
-  const ai = new GoogleGenAI({ apiKey });
+  const ai = new GoogleGenAI({
+    apiKey,
+    httpOptions: {
+      headers: {
+        'User-Agent': 'aistudio-build',
+      },
+    },
+  });
   const systemInstruction = buildNivaSystemPrompt(prefs);
 
   // Take the most recent 10 messages for context management

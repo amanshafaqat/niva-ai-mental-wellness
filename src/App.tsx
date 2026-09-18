@@ -75,7 +75,7 @@ export default function App() {
                 <Sparkles className="h-3.5 w-3.5" />
               </div>
               <span className="font-semibold text-stone-900">NIVA</span>
-              <span>— Someone to talk to. (Phase 1 Architecture)</span>
+              <span>— Someone to talk to. (Phase 4 Realtime Voice Engine)</span>
             </div>
 
             <div className="flex items-center gap-6">

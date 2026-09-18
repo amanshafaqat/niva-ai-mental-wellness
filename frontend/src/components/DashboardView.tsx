@@ -90,11 +90,11 @@ export const DashboardView: React.FC = () => {
           </div>
         </div>
 
-        {/* Phase 2 Ethical Guardrail Notice */}
+        {/* Phase 4 Active Status Notice */}
         <div className="mt-6 rounded-xl border border-emerald-200 bg-emerald-50/70 p-4 text-xs text-emerald-950 flex items-start gap-3">
           <Sparkles className="h-4 w-4 text-emerald-700 shrink-0 mt-0.5" />
           <div>
-            <span className="font-semibold">Phase 2 Active:</span> Real Google OAuth 2.0 flow, server-enforced RBAC guards, and HttpOnly session cookies are operational. User roles default to USER and cannot be escalated from the frontend. Live conversational models will be connected in Phase 3.
+            <span className="font-semibold">Phase 4 Active:</span> Realtime Voice-to-Voice AI Agent powered by Gemini Live (gemini-3.8-live), bidirectional WebSocket audio relay, barge-in interruption, and non-clinical empathetic conversational guardrails are fully operational.
           </div>
         </div>
 
