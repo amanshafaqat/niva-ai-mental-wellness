@@ -10,11 +10,13 @@ import {
   FileText,
   AlertCircle,
   EyeOff,
+  HeartHandshake,
 } from 'lucide-react';
 import { useAuth } from '../lib/auth-context';
 import { RoleTester } from './RoleTester';
 import { AuditLogViewer } from './AuditLogViewer';
 import { WellnessChatSession } from './WellnessChatSession';
+import { GuardianSystemView } from './GuardianSystemView';
 import { Role, ROLE_PERMISSIONS } from '@shared/constants/roles';
 
 interface DashboardViewProps {
@@ -23,7 +25,7 @@ interface DashboardViewProps {
 
 export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenCrisisResources }) => {
   const { session } = useAuth();
-  const [activeTab, setActiveTab] = useState<'session' | 'profile' | 'rbac' | 'audit' | 'privacy'>('session');
+  const [activeTab, setActiveTab] = useState<'session' | 'guardians' | 'profile' | 'rbac' | 'audit' | 'privacy'>('session');
 
   if (!session) {
     return (
@@ -141,6 +143,17 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenCrisisResour
             <span>NIVA Wellness Session</span>
           </button>
           <button
+            onClick={() => setActiveTab('guardians')}
+            className={`flex items-center gap-2 border-b-2 px-4 py-2.5 text-sm font-medium transition ${
+              activeTab === 'guardians'
+                ? 'border-emerald-700 text-emerald-800 font-semibold'
+                : 'border-transparent text-stone-700 hover:text-stone-900'
+            }`}
+          >
+            <HeartHandshake className="h-4 w-4" />
+            <span>Guardian Network</span>
+          </button>
+          <button
             onClick={() => setActiveTab('profile')}
             className={`flex items-center gap-2 border-b-2 px-4 py-2.5 text-sm font-medium transition ${
               activeTab === 'profile'
@@ -189,6 +202,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenCrisisResour
         {/* Tab Contents */}
         <div className="mt-6">
           {activeTab === 'session' && <WellnessChatSession onOpenCrisisResources={onOpenCrisisResources} />}
+
+          {activeTab === 'guardians' && <GuardianSystemView />}
 
           {activeTab === 'profile' && (
             <div className="space-y-6">

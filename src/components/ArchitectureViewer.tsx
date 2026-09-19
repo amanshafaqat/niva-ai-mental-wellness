@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { FolderTree, Database, Cpu, ShieldCheck, Layers, GitBranch, Terminal } from 'lucide-react';
 
 export const ArchitectureViewer: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'monorepo' | 'prisma' | 'ai' | 'security'>('monorepo');
+  const [activeTab, setActiveTab] = useState<'monorepo' | 'prisma' | 'ai' | 'guardian' | 'security'>('guardian');
 
   return (
     <div id="architecture-viewer-panel" className="rounded-2xl border border-stone-200 bg-white p-6 shadow-xs">
@@ -13,12 +13,20 @@ export const ArchitectureViewer: React.FC = () => {
             <span>NIVA Architecture & Technical Blueprint</span>
           </h3>
           <p className="mt-1 text-xs text-stone-600">
-            Phase 2: Next.js + NestJS + PostgreSQL + Prisma ORM + Real Google OAuth + RBAC Guards + HttpOnly Sessions.
+            Phase 6: Next.js + PostgreSQL + Prisma ORM + Real Google OAuth + Gemini Live Voice + Crisis Registry + Consent-Driven Guardian System.
           </p>
         </div>
 
         {/* Tab Selector */}
         <div className="flex flex-wrap rounded-xl border border-stone-200 bg-stone-50 p-1 text-xs font-semibold text-stone-700">
+          <button
+            onClick={() => setActiveTab('guardian')}
+            className={`rounded-lg px-3 py-1.5 transition ${
+              activeTab === 'guardian' ? 'bg-white text-stone-900 shadow-xs' : 'hover:text-stone-900'
+            }`}
+          >
+            Guardian System (Phase 6)
+          </button>
           <button
             onClick={() => setActiveTab('monorepo')}
             className={`rounded-lg px-3 py-1.5 transition ${
@@ -55,6 +63,43 @@ export const ArchitectureViewer: React.FC = () => {
       </div>
 
       <div className="mt-6">
+        {activeTab === 'guardian' && (
+          <div className="space-y-4">
+            <div className="rounded-xl border border-stone-200 bg-stone-50/50 p-4">
+              <div className="flex items-center gap-2 font-semibold text-stone-900 text-sm mb-2">
+                <ShieldCheck className="h-4 w-4 text-emerald-800" />
+                <span>Phase 6: Guardian System Architecture & Zero-Surveillance Model</span>
+              </div>
+              <p className="text-xs text-stone-600 leading-relaxed mb-3">
+                NIVA implements a consent-first, sovereign guardian architecture designed to provide trusted human
+                support without surveillance, eavesdropping, or privacy erosion.
+              </p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs text-stone-700">
+                <div className="rounded-lg bg-white p-3 border border-stone-200">
+                  <strong className="text-stone-900 block mb-1">1. Cryptographic Single-Use Invitations</strong>
+                  Tokens are generated via 256-bit cryptographically secure entropy (<code className="font-mono text-emerald-800">crypto.randomBytes(32)</code>),
+                  stored exclusively as salted SHA-256 hashes, with 7-day expiration and single-use replay defense.
+                </div>
+                <div className="rounded-lg bg-white p-3 border border-stone-200">
+                  <strong className="text-stone-900 block mb-1">2. Strict Zero-Surveillance Boundary</strong>
+                  Direct chat dialogues, voice audio, transcripts, and clinical crisis flags are strictly isolated and
+                  never queried, stored, or exposed to guardian profiles.
+                </div>
+                <div className="rounded-lg bg-white p-3 border border-stone-200">
+                  <strong className="text-stone-900 block mb-1">3. Sovereign Granular Opt-In Controls</strong>
+                  Wards maintain real-time individual toggles for Activity Status, Wellness Streak Days, and Voluntary Mood.
+                  All indicators default to completely hidden (<code className="font-mono text-emerald-800">null</code>).
+                </div>
+                <div className="rounded-lg bg-white p-3 border border-stone-200">
+                  <strong className="text-stone-900 block mb-1">4. Instant Revocation & IDOR Protection</strong>
+                  A ward can terminate a guardian relationship at any instant. Server-side authorization checks verify
+                  ownership on every call to prevent Insecure Direct Object References (IDOR).
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {activeTab === 'monorepo' && (
           <div className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

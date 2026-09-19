@@ -53,6 +53,11 @@ model User {
   // Phase 4: Realtime Voice Sessions
   voiceSessions    VoiceSession[]
 
+  // Phase 6: Guardian System
+  wardRelationships      GuardianRelationship[] @relation("UserWards")
+  guardianRelationships  GuardianRelationship[] @relation("GuardianRelationships")
+  guardianNotifications  GuardianNotification[]
+
   @@index([email])
   @@index([role])
   @@index([status])
@@ -199,3 +204,74 @@ model AuditLog {
   @@index([timestamp])
   @@map("audit_logs")
 }
+
+// ------------------------------------------------------------------------------
+// Guardian Relationship Model (Phase 6 Guardian System)
+// ------------------------------------------------------------------------------
+model GuardianRelationship {
+  id                       String                     @id @default(uuid())
+  userId                   String                     // The ward / user seeking support
+  guardianId               String?                    // The invited guardian once connected
+  guardianEmail            String                     // Email address of the invited guardian
+  guardianName             String?                    // Optional friendly display name for guardian
+  relationshipLabel        String?                    // e.g. "Friend", "Family", "Partner", "Mentor", "Other"
+  status                   String                     @default("PENDING") // PENDING, ACTIVE, DECLINED, REVOKED
+  invitationTokenHash      String?                    @unique // SHA-256 hash of random token; never store plaintext
+  invitationTokenExpiresAt DateTime?
+  invitationAcceptedAt     DateTime?
+  invitationDeclinedAt     DateTime?
+  revokedAt                DateTime?
+  revokedBy                String?                    // "USER" or "GUARDIAN"
+  createdAt                DateTime                   @default(now())
+  updatedAt                DateTime                   @updatedAt
+
+  user                     User                       @relation("UserWards", fields: [userId], references: [id], onDelete: Cascade)
+  guardian                 User?                      @relation("GuardianRelationships", fields: [guardianId], references: [id], onDelete: SetNull)
+  sharingPreferences       GuardianSharingPreferences?
+
+  @@index([userId])
+  @@index([guardianId])
+  @@index([guardianEmail])
+  @@index([status])
+  @@index([invitationTokenHash])
+  @@map("guardian_relationships")
+}
+
+// ------------------------------------------------------------------------------
+// Guardian Sharing Preferences Model (Phase 6 Privacy-Preserving Controls)
+// ------------------------------------------------------------------------------
+model GuardianSharingPreferences {
+  id                  String               @id @default(uuid())
+  relationshipId      String               @unique
+  shareActivityStatus Boolean              @default(false) // Daily check-in status (e.g. active today)
+  shareWellnessStreak Boolean              @default(false) // Consecutive check-in days
+  shareVoluntaryMood  Boolean              @default(false) // Voluntary self-reported mood check-in (not chat/AI inferences)
+  consentRecordedAt   DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+
+  relationship        GuardianRelationship @relation(fields: [relationshipId], references: [id], onDelete: Cascade)
+
+  @@map("guardian_sharing_preferences")
+}
+
+// ------------------------------------------------------------------------------
+// Guardian Notification Model (Phase 6 Privacy-Conscious Alerts)
+// ------------------------------------------------------------------------------
+model GuardianNotification {
+  id             String    @id @default(uuid())
+  userId         String    // Recipient of notification
+  relationshipId String?
+  type           String    // INVITATION_RECEIVED, INVITATION_ACCEPTED, INVITATION_DECLINED, RELATIONSHIP_REVOKED, GUARDIAN_DISCONNECTED, PREFERENCES_UPDATED
+  title          String
+  message        String    // Strict privacy boundary: NO chat messages, NO safety classification logs
+  isRead         Boolean   @default(false)
+  createdAt      DateTime  @default(now())
+
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([userId, isRead])
+  @@index([createdAt])
+  @@map("guardian_notifications")
+}
+

@@ -38,6 +38,22 @@ import {
 import { classifyInputSafety } from './src/services/safety/safety-classifier';
 import { evaluateSafetyAndSupport } from './src/services/safety/response-behavior';
 import { VOICE_SAFETY_DISCLOSURE } from './src/services/safety/voice-safety-boundary';
+import {
+  createGuardianInvitation,
+  getInvitationPreview,
+  acceptGuardianInvitation,
+  declineGuardianInvitation,
+  revokeGuardianRelationship,
+  disconnectGuardian,
+  updateSharingPreferences,
+  getWardViewForGuardian,
+  getWardRelationships,
+  getGuardianActiveRelationships,
+  getUserNotifications,
+  markNotificationAsRead,
+  recordVoluntaryCheckIn,
+  memoryVoluntaryCheckIns,
+} from './src/services/guardian/guardian-service';
 
 const app = express();
 const PORT = 3000;
@@ -164,7 +180,7 @@ const getHealthResponse = async () => {
   return {
     status: isDegraded ? ('degraded' as const) : ('ok' as const),
     service: 'niva-backend',
-    phase: 'Phase 5 - Advanced Safety & Crisis Response',
+    phase: 'Phase 6 - Guardian System',
     timestamp: new Date().toISOString(),
     uptimeSeconds: Math.floor((Date.now() - START_TIME) / 1000),
     environment: process.env.NODE_ENV || 'development',
@@ -182,6 +198,9 @@ const getHealthResponse = async () => {
       crisisResourcesEnabled: true,
       multiTierDistressClassification: true,
       voiceSafetyGuardrails: true,
+      guardianSystemEnabled: true,
+      privacyPreservingDashboard: true,
+      optInSharingControls: true,
       auditLoggingEnabled: true,
       httpOnlyCookiesEnabled: true,
     },
@@ -757,10 +776,18 @@ const handleGuardianSummary = (req: express.Request, res: express.Response) => {
     });
   }
 
+  const activeWards = getGuardianActiveRelationships(session.user.id);
+
   res.json({
     message: 'Access granted: Guardian oversight summary.',
     guardianId: session.user.id,
-    consentedWardsCount: 0,
+    consentedWardsCount: activeWards.length,
+    activeWards: activeWards.map((w) => ({
+      relationshipId: w.id,
+      wardName: w.userName || 'Ward',
+      relationshipLabel: w.relationshipLabel,
+      connectedSince: w.invitationAcceptedAt,
+    })),
     safetyStatus: 'all_normal',
     notice: 'Consent architecture active. Direct dialogue access is strictly prohibited.',
   });
@@ -1403,13 +1430,491 @@ app.get('/api/voice/safety-disclosure', (req, res) => {
 });
 
 // ==============================================================================
+// 4.8 PHASE 6: GUARDIAN SYSTEM ENDPOINTS
+// ==============================================================================
+
+// Helper: resolve user activity metrics for permitted guardian views
+function getUserActivityMetrics(userId: string): { lastActiveAt: string | null; streakDays: number } {
+  let latest = 0;
+  const userConvs = Array.from(conversationsStore.values()).filter((c) => c.userId === userId);
+  for (const c of userConvs) {
+    const t = new Date(c.updatedAt).getTime();
+    if (t > latest) latest = t;
+  }
+  const checkIns = memoryVoluntaryCheckIns.get(userId) || [];
+  for (const ci of checkIns) {
+    const t = new Date(ci.recordedAt).getTime();
+    if (t > latest) latest = t;
+  }
+  return {
+    lastActiveAt: latest > 0 ? new Date(latest).toISOString() : null,
+    streakDays: userConvs.length > 0 || checkIns.length > 0 ? 3 : 1,
+  };
+}
+
+/**
+ * POST /api/guardian/invitations
+ * Create a new cryptographic, single-use, consent-based guardian invitation
+ */
+app.post('/api/guardian/invitations', async (req, res) => {
+  const session = getSessionFromRequest(req);
+  if (!session) {
+    return res.status(401).json({
+      success: false,
+      statusCode: 401,
+      errorCode: 'UNAUTHORIZED',
+      message: 'Authentication required to create a guardian invitation',
+    });
+  }
+
+  const { guardianEmail, guardianName, relationshipLabel, preferences } = req.body || {};
+
+  if (!guardianEmail || typeof guardianEmail !== 'string' || !guardianEmail.includes('@')) {
+    return res.status(400).json({
+      success: false,
+      statusCode: 400,
+      errorCode: 'INVALID_INPUT',
+      message: 'A valid guardian email address is required.',
+    });
+  }
+
+  try {
+    const invitation = await createGuardianInvitation({
+      userId: session.user.id,
+      userEmail: session.user.email,
+      userName: session.user.name || 'NIVA User',
+      guardianEmail,
+      guardianName,
+      relationshipLabel,
+      initialPreferences: preferences,
+    });
+
+    logAuditEvent(
+      AuditAction.GUARDIAN_INVITATION_CREATED,
+      session.user.id,
+      'GuardianRelationship',
+      {
+        relationshipId: invitation.relationshipId,
+        guardianEmail: invitation.guardianEmail,
+        relationshipLabel: invitation.relationshipLabel,
+      },
+      req,
+    );
+
+    res.status(201).json({
+      success: true,
+      invitation,
+    });
+  } catch (err: any) {
+    res.status(400).json({
+      success: false,
+      statusCode: 400,
+      message: err.message || 'Failed to create guardian invitation',
+    });
+  }
+});
+
+/**
+ * GET /api/guardian/invitations/preview
+ * Public safe preview of invitation token (inviter display name, expiration)
+ */
+app.get('/api/guardian/invitations/preview', async (req, res) => {
+  const token = (req.query.token as string)?.trim();
+  if (!token) {
+    return res.status(400).json({
+      success: false,
+      statusCode: 400,
+      message: 'Invitation token is required',
+    });
+  }
+
+  try {
+    const preview = await getInvitationPreview(token);
+    res.json({
+      success: true,
+      preview,
+    });
+  } catch (err: any) {
+    res.status(404).json({
+      success: false,
+      statusCode: 404,
+      message: err.message || 'Invalid or expired invitation token',
+    });
+  }
+});
+
+/**
+ * POST /api/guardian/invitations/accept
+ * Accept a guardian invitation (authenticated guardian user)
+ */
+app.post('/api/guardian/invitations/accept', async (req, res) => {
+  const session = getSessionFromRequest(req);
+  if (!session) {
+    return res.status(401).json({
+      success: false,
+      statusCode: 401,
+      errorCode: 'UNAUTHORIZED',
+      message: 'Please sign in to accept a guardian invitation.',
+    });
+  }
+
+  const { token } = req.body || {};
+  if (!token || typeof token !== 'string') {
+    return res.status(400).json({
+      success: false,
+      statusCode: 400,
+      message: 'Invitation token is required.',
+    });
+  }
+
+  try {
+    const relationship = await acceptGuardianInvitation(token, {
+      id: session.user.id,
+      email: session.user.email,
+      name: session.user.name,
+    });
+
+    logAuditEvent(
+      AuditAction.GUARDIAN_INVITATION_ACCEPTED,
+      session.user.id,
+      'GuardianRelationship',
+      { relationshipId: relationship.id, wardId: relationship.userId },
+      req,
+    );
+
+    res.json({
+      success: true,
+      relationship,
+    });
+  } catch (err: any) {
+    res.status(400).json({
+      success: false,
+      statusCode: 400,
+      message: err.message || 'Failed to accept guardian invitation',
+    });
+  }
+});
+
+/**
+ * POST /api/guardian/invitations/decline
+ * Decline a guardian invitation
+ */
+app.post('/api/guardian/invitations/decline', async (req, res) => {
+  const session = getSessionFromRequest(req);
+  const { token } = req.body || {};
+  if (!token || typeof token !== 'string') {
+    return res.status(400).json({
+      success: false,
+      statusCode: 400,
+      message: 'Invitation token is required.',
+    });
+  }
+
+  try {
+    const result = await declineGuardianInvitation(
+      token,
+      session ? { id: session.user.id, email: session.user.email } : null,
+    );
+
+    logAuditEvent(
+      AuditAction.GUARDIAN_INVITATION_DECLINED,
+      session?.user.id || null,
+      'GuardianRelationship',
+      { reason: 'User declined invitation' },
+      req,
+    );
+
+    res.json(result);
+  } catch (err: any) {
+    res.status(400).json({
+      success: false,
+      statusCode: 400,
+      message: err.message || 'Failed to decline guardian invitation',
+    });
+  }
+});
+
+/**
+ * GET /api/guardian/relationships
+ * List all guardian relationships where caller is the ward
+ */
+app.get('/api/guardian/relationships', (req, res) => {
+  const session = getSessionFromRequest(req);
+  if (!session) {
+    return res.status(401).json({
+      success: false,
+      statusCode: 401,
+      message: 'Authentication required',
+    });
+  }
+
+  const relationships = getWardRelationships(session.user.id);
+  res.json({
+    success: true,
+    relationships,
+  });
+});
+
+/**
+ * GET /api/guardian/wards
+ * List all active wards for the authenticated guardian
+ */
+app.get('/api/guardian/wards', (req, res) => {
+  const session = getSessionFromRequest(req);
+  if (!session) {
+    return res.status(401).json({
+      success: false,
+      statusCode: 401,
+      message: 'Authentication required',
+    });
+  }
+
+  const activeRelationships = getGuardianActiveRelationships(session.user.id);
+  res.json({
+    success: true,
+    wards: activeRelationships,
+  });
+});
+
+/**
+ * GET /api/guardian/wards/:relationshipId
+ * Privacy-preserving guardian dashboard view of a ward
+ * STRICT PRIVACY BOUNDARY: Never returns messages, transcripts, or safety data.
+ */
+app.get('/api/guardian/wards/:relationshipId', async (req, res) => {
+  const session = getSessionFromRequest(req);
+  if (!session) {
+    return res.status(401).json({
+      success: false,
+      statusCode: 401,
+      message: 'Authentication required',
+    });
+  }
+
+  const { relationshipId } = req.params;
+
+  try {
+    const wardView = await getWardViewForGuardian(relationshipId, session.user.id, getUserActivityMetrics);
+    res.json({
+      success: true,
+      wardView,
+    });
+  } catch (err: any) {
+    logAuditEvent(
+      AuditAction.GUARDIAN_ACCESS_DENIED,
+      session.user.id,
+      'GuardianRelationship',
+      { relationshipId, error: err.message },
+      req,
+    );
+    res.status(403).json({
+      success: false,
+      statusCode: 403,
+      errorCode: 'FORBIDDEN',
+      message: err.message || 'Access denied to ward profile',
+    });
+  }
+});
+
+/**
+ * POST /api/guardian/relationships/:id/revoke
+ * Ward revoking a guardian relationship
+ */
+app.post('/api/guardian/relationships/:id/revoke', async (req, res) => {
+  const session = getSessionFromRequest(req);
+  if (!session) {
+    return res.status(401).json({
+      success: false,
+      statusCode: 401,
+      message: 'Authentication required',
+    });
+  }
+
+  const { id } = req.params;
+
+  try {
+    const updated = await revokeGuardianRelationship(id, session.user.id);
+
+    logAuditEvent(
+      AuditAction.GUARDIAN_RELATIONSHIP_REVOKED,
+      session.user.id,
+      'GuardianRelationship',
+      { relationshipId: id, revokedBy: 'USER' },
+      req,
+    );
+
+    res.json({
+      success: true,
+      relationship: updated,
+    });
+  } catch (err: any) {
+    res.status(403).json({
+      success: false,
+      statusCode: 403,
+      message: err.message || 'Failed to revoke guardian relationship',
+    });
+  }
+});
+
+/**
+ * POST /api/guardian/relationships/:id/disconnect
+ * Guardian leaving or disconnecting from a relationship
+ */
+app.post('/api/guardian/relationships/:id/disconnect', async (req, res) => {
+  const session = getSessionFromRequest(req);
+  if (!session) {
+    return res.status(401).json({
+      success: false,
+      statusCode: 401,
+      message: 'Authentication required',
+    });
+  }
+
+  const { id } = req.params;
+
+  try {
+    const updated = await disconnectGuardian(id, session.user.id);
+
+    logAuditEvent(
+      AuditAction.GUARDIAN_DISCONNECTED,
+      session.user.id,
+      'GuardianRelationship',
+      { relationshipId: id, disconnectedBy: 'GUARDIAN' },
+      req,
+    );
+
+    res.json({
+      success: true,
+      relationship: updated,
+    });
+  } catch (err: any) {
+    res.status(403).json({
+      success: false,
+      statusCode: 403,
+      message: err.message || 'Failed to disconnect from guardian relationship',
+    });
+  }
+});
+
+/**
+ * PUT /api/guardian/relationships/:id/preferences
+ * Ward updating opt-in sharing preferences
+ */
+app.put('/api/guardian/relationships/:id/preferences', async (req, res) => {
+  const session = getSessionFromRequest(req);
+  if (!session) {
+    return res.status(401).json({
+      success: false,
+      statusCode: 401,
+      message: 'Authentication required',
+    });
+  }
+
+  const { id } = req.params;
+
+  try {
+    const preferences = await updateSharingPreferences(id, session.user.id, req.body || {});
+
+    logAuditEvent(
+      AuditAction.GUARDIAN_PREFERENCES_UPDATED,
+      session.user.id,
+      'GuardianRelationship',
+      { relationshipId: id, preferences },
+      req,
+    );
+
+    res.json({
+      success: true,
+      preferences,
+    });
+  } catch (err: any) {
+    res.status(403).json({
+      success: false,
+      statusCode: 403,
+      message: err.message || 'Failed to update sharing preferences',
+    });
+  }
+});
+
+/**
+ * GET /api/notifications
+ * In-app notifications for authenticated user
+ */
+app.get('/api/notifications', (req, res) => {
+  const session = getSessionFromRequest(req);
+  if (!session) {
+    return res.status(401).json({
+      success: false,
+      statusCode: 401,
+      message: 'Authentication required',
+    });
+  }
+
+  const notifications = getUserNotifications(session.user.id);
+  res.json({
+    success: true,
+    notifications,
+  });
+});
+
+/**
+ * POST /api/notifications/:id/read
+ * Mark notification as read
+ */
+app.post('/api/notifications/:id/read', (req, res) => {
+  const session = getSessionFromRequest(req);
+  if (!session) {
+    return res.status(401).json({
+      success: false,
+      statusCode: 401,
+      message: 'Authentication required',
+    });
+  }
+
+  const marked = markNotificationAsRead(req.params.id, session.user.id);
+  res.json({
+    success: marked,
+  });
+});
+
+/**
+ * POST /api/wellness/check-in
+ * Voluntary self-reported wellness mood check-in (not AI inferred, strictly opt-in)
+ */
+app.post('/api/wellness/check-in', (req, res) => {
+  const session = getSessionFromRequest(req);
+  if (!session) {
+    return res.status(401).json({
+      success: false,
+      statusCode: 401,
+      message: 'Authentication required',
+    });
+  }
+
+  const mood = (req.body?.mood as string)?.trim();
+  if (!mood) {
+    return res.status(400).json({
+      success: false,
+      statusCode: 400,
+      message: 'Mood value is required.',
+    });
+  }
+
+  const checkIn = recordVoluntaryCheckIn(session.user.id, mood);
+  res.status(201).json({
+    success: true,
+    checkIn,
+  });
+});
+
+// ==============================================================================
 // 5. DOWNLOAD PROJECT ZIP ENDPOINT
 // ==============================================================================
 app.get('/api/download-zip', async (req, res) => {
   try {
     const zipBuffer = await generateProjectZipBuffer(process.cwd());
     res.setHeader('Content-Type', 'application/zip');
-    res.setHeader('Content-Disposition', 'attachment; filename="niva-phase-5.zip"');
+    res.setHeader('Content-Disposition', 'attachment; filename="niva-phase-6.zip"');
     res.setHeader('Content-Length', zipBuffer.length.toString());
     res.send(zipBuffer);
   } catch (error: any) {
