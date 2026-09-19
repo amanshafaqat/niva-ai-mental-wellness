@@ -1,11 +1,12 @@
 import React from 'react';
-import { Shield, Sparkles, Download, LogOut, User as UserIcon } from 'lucide-react';
+import { Shield, Sparkles, Download, LogOut, User as UserIcon, HeartHandshake } from 'lucide-react';
 import { useAuth } from '../lib/auth-context';
 import { Role } from '@shared/constants/roles';
 
 interface NavbarProps {
   onOpenAuthModal: () => void;
   onOpenZipModal: () => void;
+  onOpenCrisisResources?: () => void;
   activeView: 'home' | 'dashboard' | 'architecture' | 'health';
   setActiveView: (view: 'home' | 'dashboard' | 'architecture' | 'health') => void;
 }
@@ -13,6 +14,7 @@ interface NavbarProps {
 export const Navbar: React.FC<NavbarProps> = ({
   onOpenAuthModal,
   onOpenZipModal,
+  onOpenCrisisResources,
   activeView,
   setActiveView,
 }) => {
@@ -103,6 +105,20 @@ export const Navbar: React.FC<NavbarProps> = ({
 
         {/* Action Controls */}
         <div className="flex items-center gap-2.5">
+          {/* Crisis Resources Direct Access */}
+          {onOpenCrisisResources && (
+            <button
+              id="nav-crisis-resources-button"
+              onClick={onOpenCrisisResources}
+              aria-label="Open Crisis Resources"
+              className="flex items-center gap-1.5 rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1.5 text-xs sm:text-sm font-semibold text-rose-800 shadow-sm transition hover:bg-rose-100 hover:text-rose-900"
+            >
+              <HeartHandshake className="h-3.5 w-3.5 text-rose-600" />
+              <span className="hidden sm:inline">Crisis Resources</span>
+              <span className="sm:hidden">Help</span>
+            </button>
+          )}
+
           {/* Download Project ZIP */}
           <button
             id="nav-download-zip-button"
@@ -111,7 +127,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             className="flex items-center gap-1.5 rounded-lg border border-stone-300 bg-stone-50 px-3 py-1.5 text-xs sm:text-sm font-medium text-stone-700 shadow-sm transition hover:bg-stone-100 hover:text-stone-900"
           >
             <Download className="h-3.5 w-3.5 text-emerald-800" />
-            <span className="hidden sm:inline">Download Phase 2 ZIP</span>
+            <span className="hidden sm:inline">Phase 5 ZIP</span>
             <span className="sm:hidden">ZIP</span>
           </button>
 

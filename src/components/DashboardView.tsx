@@ -17,7 +17,11 @@ import { AuditLogViewer } from './AuditLogViewer';
 import { WellnessChatSession } from './WellnessChatSession';
 import { Role, ROLE_PERMISSIONS } from '@shared/constants/roles';
 
-export const DashboardView: React.FC = () => {
+interface DashboardViewProps {
+  onOpenCrisisResources?: () => void;
+}
+
+export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenCrisisResources }) => {
   const { session } = useAuth();
   const [activeTab, setActiveTab] = useState<'session' | 'profile' | 'rbac' | 'audit' | 'privacy'>('session');
 
@@ -184,7 +188,7 @@ export const DashboardView: React.FC = () => {
 
         {/* Tab Contents */}
         <div className="mt-6">
-          {activeTab === 'session' && <WellnessChatSession />}
+          {activeTab === 'session' && <WellnessChatSession onOpenCrisisResources={onOpenCrisisResources} />}
 
           {activeTab === 'profile' && (
             <div className="space-y-6">

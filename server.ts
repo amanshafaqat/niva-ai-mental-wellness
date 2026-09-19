@@ -29,6 +29,15 @@ import {
 } from './src/services/voice-engine';
 import { isDatabaseConnected } from './src/lib/prisma';
 import { UserPreferencesDto } from './shared/types/conversation';
+import {
+  getCrisisResourcesForCountry,
+  SUPPORTED_COUNTRIES,
+  getSafeUnknownLocationGuidance,
+  VERIFIED_CRISIS_RESOURCES,
+} from './src/services/safety/crisis-registry';
+import { classifyInputSafety } from './src/services/safety/safety-classifier';
+import { evaluateSafetyAndSupport } from './src/services/safety/response-behavior';
+import { VOICE_SAFETY_DISCLOSURE } from './src/services/safety/voice-safety-boundary';
 
 const app = express();
 const PORT = 3000;
@@ -155,7 +164,7 @@ const getHealthResponse = async () => {
   return {
     status: isDegraded ? ('degraded' as const) : ('ok' as const),
     service: 'niva-backend',
-    phase: 'Phase 4.1 - Realtime Voice-to-Voice AI Agent (Gemini Live)',
+    phase: 'Phase 5 - Advanced Safety & Crisis Response',
     timestamp: new Date().toISOString(),
     uptimeSeconds: Math.floor((Date.now() - START_TIME) / 1000),
     environment: process.env.NODE_ENV || 'development',
@@ -170,6 +179,9 @@ const getHealthResponse = async () => {
       aiProviderReady: geminiReady,
       realtimeVoiceReady: geminiReady,
       geminiLiveModel: 'gemini-3.8-live',
+      crisisResourcesEnabled: true,
+      multiTierDistressClassification: true,
+      voiceSafetyGuardrails: true,
       auditLoggingEnabled: true,
       httpOnlyCookiesEnabled: true,
     },
@@ -1131,8 +1143,9 @@ const handlePostConversationMessage = async (req: express.Request, res: express.
     });
   }
 
-  // Safety evaluation
-  const safetyCheck = evaluateInputSafety(content);
+  // Phase 5 Safety evaluation: checks NONE, LOW, MODERATE, HIGH
+  const userCountryCode = (req.body.countryCode || req.headers['x-country-code'] || 'GLOBAL') as string;
+  const safetyCheck = evaluateInputSafety(content, userCountryCode);
   const now = new Date().toISOString();
 
   const userMessage = {
@@ -1147,6 +1160,7 @@ const handlePostConversationMessage = async (req: express.Request, res: express.
 
   let assistantContent: string;
   if (!safetyCheck.isSafe && safetyCheck.blockedResponse) {
+    // High-risk safety intervention: compassionate safety response with verified emergency resources
     assistantContent = safetyCheck.blockedResponse;
   } else {
     usageStore.totalAiRequests++;
@@ -1156,7 +1170,7 @@ const handlePostConversationMessage = async (req: express.Request, res: express.
       .filter((m) => m.role === 'user' || m.role === 'assistant')
       .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content }));
 
-    assistantContent = await generateNivaReply(historyForAi, prefs);
+    assistantContent = await generateNivaReply(historyForAi, prefs, safetyCheck.level);
   }
 
   const assistantMessage = {
@@ -1174,6 +1188,10 @@ const handlePostConversationMessage = async (req: express.Request, res: express.
   res.status(201).json({
     userMessage,
     assistantMessage,
+    safety: {
+      isSafe: safetyCheck.isSafe,
+      suggestedResources: safetyCheck.suggestedResources || [],
+    },
   });
 };
 
@@ -1288,8 +1306,18 @@ const handleCreateVoiceTicket = async (req: express.Request, res: express.Respon
     });
   }
 
-  const ticketData = await createVoiceTicket(session.user, conv);
-  res.json(ticketData);
+  try {
+    const ticketData = await createVoiceTicket(session.user, conv);
+    res.json(ticketData);
+  } catch (err: any) {
+    console.error('Voice ticket creation failed due to database persistence error:', err?.message || err);
+    return res.status(500).json({
+      success: false,
+      statusCode: 500,
+      errorCode: 'VOICE_SESSION_PERSISTENCE_FAILED',
+      message: 'Unable to initialize voice session in database. Ticket issuance aborted for data integrity.',
+    });
+  }
 };
 
 app.post('/conversations/:id/voice-ticket', handleCreateVoiceTicket);
@@ -1310,11 +1338,21 @@ app.get('/api/voice/sessions', async (req, res) => {
     });
   }
 
-  const sessions = await getVoiceSessionsForUser(session.user.id);
-  res.json({
-    success: true,
-    sessions,
-  });
+  try {
+    const sessions = await getVoiceSessionsForUser(session.user.id);
+    res.json({
+      success: true,
+      sessions,
+    });
+  } catch (err: any) {
+    console.error('Failed to retrieve voice sessions from database:', err?.message || err);
+    return res.status(500).json({
+      success: false,
+      statusCode: 500,
+      errorCode: 'DATABASE_QUERY_FAILED',
+      message: 'Failed to retrieve voice session records from persistent storage.',
+    });
+  }
 });
 
 /**
@@ -1326,13 +1364,52 @@ app.get('/api/voice/metrics', (req, res) => {
 });
 
 // ==============================================================================
+// 4.7 INTERNATIONAL CRISIS RESOURCES DIRECTORY & SAFETY (PHASE 5)
+// ==============================================================================
+
+/**
+ * GET /api/crisis-resources
+ * Returns verified international crisis support resources filtered by optional country code.
+ * Non-US-centric, avoids fabricating numbers, with global directory fallbacks.
+ */
+const handleGetCrisisResources = (req: express.Request, res: express.Response) => {
+  const countryParam = (req.query.country as string) || '';
+  const resources = getCrisisResourcesForCountry(countryParam);
+  const globalFallbacks = getCrisisResourcesForCountry('GLOBAL');
+
+  res.json({
+    success: true,
+    selectedCountry: countryParam.toUpperCase() || 'GLOBAL',
+    availableCountries: SUPPORTED_COUNTRIES,
+    resources,
+    globalFallbacks,
+    disclaimer:
+      'NIVA is an AI wellness companion, not a medical professional, emergency dispatcher, or crisis hotline. If you or someone you know is in acute danger, please contact local emergency services immediately.',
+  });
+};
+
+app.get('/api/crisis-resources', handleGetCrisisResources);
+app.get('/crisis-resources', handleGetCrisisResources);
+
+/**
+ * GET /api/voice/safety-disclosure
+ * Provides transparent disclosure of the safe integration boundary for voice sessions
+ */
+app.get('/api/voice/safety-disclosure', (req, res) => {
+  res.json({
+    success: true,
+    disclosure: VOICE_SAFETY_DISCLOSURE,
+  });
+});
+
+// ==============================================================================
 // 5. DOWNLOAD PROJECT ZIP ENDPOINT
 // ==============================================================================
 app.get('/api/download-zip', async (req, res) => {
   try {
     const zipBuffer = await generateProjectZipBuffer(process.cwd());
     res.setHeader('Content-Type', 'application/zip');
-    res.setHeader('Content-Disposition', 'attachment; filename="niva-phase-4.zip"');
+    res.setHeader('Content-Disposition', 'attachment; filename="niva-phase-5.zip"');
     res.setHeader('Content-Length', zipBuffer.length.toString());
     res.send(zipBuffer);
   } catch (error: any) {
@@ -1374,7 +1451,7 @@ async function startServer() {
   }
 
   httpServer.listen(PORT, '0.0.0.0', () => {
-    console.log(`🌿 NIVA Phase 4.1 Server running at http://localhost:${PORT}`);
+    console.log(`🌿 NIVA Phase 5 Server running at http://localhost:${PORT}`);
     console.log(`🎙️ Realtime Voice WebSocket: ws://localhost:${PORT}/live`);
     console.log(`🛡️ Health Check: http://localhost:${PORT}/health`);
     console.log(`📦 Project ZIP: http://localhost:${PORT}/api/download-zip`);

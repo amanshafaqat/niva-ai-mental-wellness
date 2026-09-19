@@ -30,6 +30,7 @@ import {
   InMemoryConversation,
 } from './conversation-engine';
 import { getPrismaClient } from '../lib/prisma';
+import { VOICE_SAFETY_SYSTEM_INSTRUCTION } from './safety/voice-safety-boundary';
 
 export interface InMemoryVoiceSession {
   id: string;
@@ -83,7 +84,11 @@ export function checkVoiceTicketRateLimit(userId: string): boolean {
 /**
  * Creates a cryptographically random short-lived ticket (60 seconds)
  * for the authenticated user to connect to the /live WebSocket.
- * Persists session record into Prisma VoiceSession database.
+ * 
+ * CRITICAL PERSISTENCE RULE:
+ * A voice session or ticket is NOT treated as successfully created unless its required
+ * database persistence in Prisma succeeds. In-memory structures are used exclusively for
+ * transient runtime connection state, not as a substitute for persistent records.
  */
 export async function createVoiceTicket(
   user: AuthSession['user'],
@@ -94,6 +99,27 @@ export async function createVoiceTicket(
   const expiresAt = Date.now() + 60 * 1000; // 60 seconds validity
   const startedAt = new Date();
 
+  // 1. Mandatory persistence first into Prisma
+  const prisma = getPrismaClient();
+  try {
+    await prisma.voiceSession.create({
+      data: {
+        id: voiceSessionId,
+        userId: user.id,
+        conversationId: conversation.id,
+        status: 'INITIALIZING',
+        startedAt,
+        durationSeconds: 0,
+      },
+    });
+  } catch (dbErr: any) {
+    // Database failure: DO NOT update in-memory stores, DO NOT issue ticket
+    const message = dbErr instanceof Error ? dbErr.message : String(dbErr);
+    console.error('VoiceSession database persistence failed. Ticket creation aborted:', message);
+    throw new Error(`Failed to persist voice session to database: ${message}`);
+  }
+
+  // 2. Only upon confirmed database persistence, initialize transient in-memory runtime cache
   const voiceSession: InMemoryVoiceSession = {
     id: voiceSessionId,
     userId: user.id,
@@ -105,7 +131,6 @@ export async function createVoiceTicket(
     interruptionCount: 0,
   };
 
-  // Cache in memory for quick lookups
   voiceSessionsStore.set(voiceSessionId, voiceSession);
   voiceTicketsStore.set(ticket, {
     ticket,
@@ -116,24 +141,6 @@ export async function createVoiceTicket(
   });
 
   voiceUsageStore.totalVoiceSessions += 1;
-
-  // Persist into Prisma database (persistent source of truth)
-  try {
-    const prisma = getPrismaClient();
-    await prisma.voiceSession.create({
-      data: {
-        id: voiceSessionId,
-        userId: user.id,
-        conversationId: conversation.id,
-        status: 'INITIALIZING',
-        startedAt,
-        durationSeconds: 0,
-      },
-    });
-  } catch (dbErr) {
-    // If database connection is not configured or offline, continue with session cache
-    console.warn('VoiceSession database persistence deferred:', dbErr instanceof Error ? dbErr.message : dbErr);
-  }
 
   return {
     ticket,
@@ -171,7 +178,7 @@ export function consumeVoiceTicket(ticketStr: string): {
 /**
  * Builds NIVA's dedicated Realtime Voice System Prompt.
  * Emphasizes natural spoken conversation, brevity (1-3 sentences), warm pauses,
- * and immediate stop upon barge-in/interruption.
+ * safety guardrails, and immediate stop upon barge-in/interruption.
  */
 export function buildNivaVoiceSystemPrompt(userId: string): string {
   const prefs = userPreferencesStore.get(userId) || {
@@ -195,6 +202,8 @@ export function buildNivaVoiceSystemPrompt(userId: string): string {
     '- Ask at most ONE gentle question to give space for the user to speak.',
     '- If interrupted, gracefully yield immediately to the user.',
     '- You are an AI wellness companion, not a medical or clinical professional.',
+    '',
+    VOICE_SAFETY_SYSTEM_INSTRUCTION,
   ].join('\n');
 }
 
@@ -464,12 +473,6 @@ export function setupVoiceWebSocketServer(wss: WebSocketServer) {
                 data: parsed.audio,
                 mimeType: 'audio/pcm;rate=16000',
               },
-              media: [
-                {
-                  data: parsed.audio,
-                  mimeType: 'audio/pcm;rate=16000',
-                },
-              ],
             });
           } else if (parsed.type === 'INTERRUPT') {
             // Client detected barge-in or tapped interrupt
@@ -513,20 +516,14 @@ export function setupVoiceWebSocketServer(wss: WebSocketServer) {
 }
 
 /**
- * Retrieves voice sessions for a user directly from Prisma (with fallback to memory)
+ * Retrieves voice sessions for a user directly from Prisma database (the persistent source of truth).
  */
 export async function getVoiceSessionsForUser(userId: string) {
-  try {
-    const prisma = getPrismaClient();
-    const sessions = await prisma.voiceSession.findMany({
-      where: { userId },
-      orderBy: { startedAt: 'desc' },
-      take: 20,
-    });
-    return sessions;
-  } catch (dbErr) {
-    return Array.from(voiceSessionsStore.values())
-      .filter((s) => s.userId === userId)
-      .sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime());
-  }
+  const prisma = getPrismaClient();
+  const sessions = await prisma.voiceSession.findMany({
+    where: { userId },
+    orderBy: { startedAt: 'desc' },
+    take: 20,
+  });
+  return sessions;
 }

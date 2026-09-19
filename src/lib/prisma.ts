@@ -12,6 +12,16 @@ export function getPrismaClient(): PrismaClient {
   return prisma;
 }
 
+export function setPrismaClient(customPrisma: PrismaClient | null): void {
+  prisma = customPrisma;
+  isPrismaConnected = customPrisma !== null;
+}
+
+export function resetPrismaClient(): void {
+  prisma = null;
+  isPrismaConnected = null;
+}
+
 export async function isDatabaseConnected(): Promise<boolean> {
   if (isPrismaConnected !== null) return isPrismaConnected;
   try {

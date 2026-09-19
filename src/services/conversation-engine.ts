@@ -14,6 +14,22 @@ import {
   ConversationSummaryDto,
   UsageMetricsDto,
 } from '../../shared/types/conversation';
+import {
+  SafetyClassificationLevel,
+  SafetyEvaluationResult,
+  CrisisResource,
+} from '../../shared/types/safety';
+import { classifyInputSafety } from './safety/safety-classifier';
+import {
+  evaluateSafetyAndSupport,
+  buildSafetyPromptInstructions,
+  generateImmediateCrisisGuidance,
+} from './safety/response-behavior';
+import {
+  getCrisisResourcesForCountry,
+  SUPPORTED_COUNTRIES,
+  getSafeUnknownLocationGuidance,
+} from './safety/crisis-registry';
 
 export interface InMemoryMessage {
   id: string;
@@ -71,55 +87,45 @@ export function checkUserRateLimit(userId: string): { allowed: boolean; remainin
 }
 
 /**
- * Basic Safety & Risk Evaluation Layer
- * Detects immediate high-risk content and produces supportive human-help guidance
- * without fabricating emergency hotlines.
+ * Phase 5 Modular Safety & Risk Evaluation Layer
+ * Evaluates distress levels (NONE, LOW, MODERATE, HIGH) and produces supportive human-help guidance
+ * with verified country-specific or global crisis resources.
  */
-export function evaluateInputSafety(text: string): {
+export function evaluateInputSafety(
+  text: string,
+  countryCode?: string,
+): {
   isSafe: boolean;
+  level: SafetyClassificationLevel;
   blockedResponse?: string;
+  suggestedResources?: CrisisResource[];
 } {
-  const lower = text.toLowerCase();
+  const result = evaluateSafetyAndSupport(text, countryCode);
 
-  const severeHarmKeywords = [
-    'how to kill myself',
-    'how to commit suicide',
-    'how to end my life',
-    'instructions to hang myself',
-    'ways to kill myself',
-    'how to overdose',
-    'how to cut my wrist',
-    'how to make a bomb',
-    'kill myself',
-    'commit suicide',
-    'end my life',
-    'ending my life',
-    'end it all',
-    'give up on life',
-    'hang myself',
-    'slit my wrist',
-    'want to die',
-    'suicidal thoughts',
-    'thinking of suicide',
-  ];
-
-  for (const phrase of severeHarmKeywords) {
-    if (lower.includes(phrase)) {
-      return {
-        isSafe: false,
-        blockedResponse:
-          "I hear how much pain you are in right now, and I care about your safety. Because I am an AI wellness companion and cannot provide emergency or medical care, please reach out immediately to a trusted person, your local emergency services, or an international crisis lifeline in your area (such as findahelpline.com, or your local crisis helpline). You do not have to face this alone.",
-      };
-    }
+  if (result.classification.level === 'HIGH') {
+    return {
+      isSafe: false,
+      level: 'HIGH',
+      blockedResponse: result.supportiveGuidance,
+      suggestedResources: result.suggestedResources,
+    };
   }
 
-  return { isSafe: true };
+  return {
+    isSafe: true,
+    level: result.classification.level,
+    suggestedResources: result.suggestedResources,
+  };
 }
 
 /**
- * Builds the NIVA System Prompt adhering to User Preferences and strict listening rules.
+ * Builds the NIVA System Prompt adhering to User Preferences, strict listening rules,
+ * and adaptive Phase 5 safety response directives.
  */
-export function buildNivaSystemPrompt(prefs: UserPreferencesDto): string {
+export function buildNivaSystemPrompt(
+  prefs: UserPreferencesDto,
+  safetyLevel: SafetyClassificationLevel = 'NONE',
+): string {
   let styleInstruction = 'Keep your response to 1 to 3 concise, warm sentences.';
   if (prefs.responseStyle === 'SHORT') {
     styleInstruction = 'Keep your response very brief: 1 to 2 short, calm sentences.';
@@ -133,6 +139,8 @@ export function buildNivaSystemPrompt(prefs: UserPreferencesDto): string {
   } else if (prefs.conversationPreference === 'HELP_ME_SOLVE') {
     modeInstruction = 'Acknowledge the feeling warmly, then offer ONE small, practical, grounding step or perspective.';
   }
+
+  const safetyDirectives = buildSafetyPromptInstructions(safetyLevel);
 
   return [
     'You are NIVA, an AI mental-wellness companion. "Someone to talk to."',
@@ -149,15 +157,19 @@ export function buildNivaSystemPrompt(prefs: UserPreferencesDto): string {
     '- Do NOT generate numbered lists, multi-paragraph guides, long essays, or unsolicited lectures.',
     '- Never manipulate the user into emotional dependency or claim NIVA is their sole support.',
     '- When a user shares a problem, acknowledge it, show empathy, offer one gentle thought or question, and stop.',
+    '',
+    safetyDirectives,
   ].join('\n');
 }
 
 /**
  * Dispatches conversational prompt to Gemini 3.8 Flash model
+ * with safety level directives and graceful error handling.
  */
 export async function generateNivaReply(
   history: Array<{ role: 'user' | 'assistant'; content: string }>,
   prefs: UserPreferencesDto,
+  safetyLevel: SafetyClassificationLevel = 'NONE',
 ): Promise<string> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
@@ -172,7 +184,7 @@ export async function generateNivaReply(
       },
     },
   });
-  const systemInstruction = buildNivaSystemPrompt(prefs);
+  const systemInstruction = buildNivaSystemPrompt(prefs, safetyLevel);
 
   // Take the most recent 10 messages for context management
   const contextWindow = history.slice(-10);

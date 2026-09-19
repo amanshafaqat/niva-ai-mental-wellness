@@ -36,9 +36,9 @@ export const DownloadZipModal: React.FC<DownloadZipModalProps> = ({ isOpen, onCl
             </div>
             <div>
               <h3 id="download-modal-title" className="text-xl font-semibold text-stone-900">
-                Download NIVA Phase 4.1 Project
+                Download NIVA Phase 5 Project
               </h3>
-              <p className="text-xs text-stone-600">Complete, self-contained monorepo archive</p>
+              <p className="text-xs text-stone-600">Complete, self-contained monorepo archive with Advanced Safety</p>
             </div>
           </div>
           <button
@@ -53,9 +53,17 @@ export const DownloadZipModal: React.FC<DownloadZipModalProps> = ({ isOpen, onCl
         <div className="mt-5 rounded-xl border border-stone-200 bg-stone-50/70 p-4 text-xs text-stone-700 space-y-2">
           <div className="font-semibold text-stone-900 flex items-center gap-1.5">
             <Package className="h-4 w-4 text-emerald-800" />
-            <span>Phase 4.1 Archive Contents:</span>
+            <span>Phase 5 Archive Contents:</span>
           </div>
           <div className="grid grid-cols-2 gap-2 pt-1 font-mono text-[11px]">
+            <div className="flex items-center gap-1.5">
+              <CheckCircle2 className="h-3.5 w-3.5 text-emerald-800 shrink-0" />
+              <span>Phase 5 Crisis Safety Engine</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <CheckCircle2 className="h-3.5 w-3.5 text-emerald-800 shrink-0" />
+              <span>Verified Global Helplines</span>
+            </div>
             <div className="flex items-center gap-1.5">
               <CheckCircle2 className="h-3.5 w-3.5 text-emerald-800 shrink-0" />
               <span>Realtime Voice (Gemini Live)</span>
@@ -63,10 +71,6 @@ export const DownloadZipModal: React.FC<DownloadZipModalProps> = ({ isOpen, onCl
             <div className="flex items-center gap-1.5">
               <CheckCircle2 className="h-3.5 w-3.5 text-emerald-800 shrink-0" />
               <span>Native Audio & Interruption</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <CheckCircle2 className="h-3.5 w-3.5 text-emerald-800 shrink-0" />
-              <span>Text AI Wellness Engine</span>
             </div>
             <div className="flex items-center gap-1.5">
               <CheckCircle2 className="h-3.5 w-3.5 text-emerald-800 shrink-0" />
@@ -78,15 +82,11 @@ export const DownloadZipModal: React.FC<DownloadZipModalProps> = ({ isOpen, onCl
             </div>
             <div className="flex items-center gap-1.5">
               <CheckCircle2 className="h-3.5 w-3.5 text-emerald-800 shrink-0" />
-              <span>Audit Logging Engine</span>
+              <span>Voice Safety Boundary</span>
             </div>
             <div className="flex items-center gap-1.5">
               <CheckCircle2 className="h-3.5 w-3.5 text-emerald-800 shrink-0" />
-              <span>Prisma Schema & Migrations</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <CheckCircle2 className="h-3.5 w-3.5 text-emerald-800 shrink-0" />
-              <span>Voice Session Lifecycle</span>
+              <span>Prisma Session Persistence</span>
             </div>
           </div>
         </div>

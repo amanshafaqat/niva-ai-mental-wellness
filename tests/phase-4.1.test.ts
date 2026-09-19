@@ -12,9 +12,32 @@ import { createVoiceTicket, consumeVoiceTicket } from '../src/services/voice-eng
 import { evaluateInputSafety } from '../src/services/conversation-engine.js';
 import { resampleTo16kHz, floatTo16BitPCMBase64 } from '../src/utils/audio-pcm.js';
 import { Role } from '../shared/constants/roles.js';
+import { setPrismaClient } from '../src/lib/prisma.js';
 
 async function runTests() {
   console.log('🧪 Starting NIVA Phase 4.1 Test Suite...\n');
+
+  // Provide isolated mock Prisma persistence adapter for unit testing
+  const testDbVoiceSessions: any[] = [];
+  setPrismaClient({
+    voiceSession: {
+      create: async ({ data }: any) => {
+        testDbVoiceSessions.push(data);
+        return data;
+      },
+      update: async ({ where, data }: any) => {
+        const idx = testDbVoiceSessions.findIndex((s) => s.id === where.id);
+        if (idx >= 0) {
+          testDbVoiceSessions[idx] = { ...testDbVoiceSessions[idx], ...data };
+          return testDbVoiceSessions[idx];
+        }
+        return null;
+      },
+      findMany: async ({ where }: any) => {
+        return testDbVoiceSessions.filter((s) => !where?.userId || s.userId === where.userId);
+      },
+    },
+  } as any);
 
   // Test 1: Voice Ticket Cryptography & One-Time Use
   console.log('1. Testing Voice Ticket Cryptography...');

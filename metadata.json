@@ -1,6 +1,6 @@
 {
   "name": "NIVA - AI Mental Wellness Companion",
-  "description": "Privacy-conscious AI mental wellness companion (Phase 4): Realtime Voice-to-Voice AI Agent powered by Gemini Live native-audio capability (gemini-3.8-live), bidirectional WebSocket relay, instant barge-in interruption, and non-clinical conversational guardrails.",
+  "description": "Privacy-conscious AI mental wellness companion (Phase 5): Advanced safety and crisis response, idiom-aware distress classification, verified international crisis directories, emergency escalation protocols, and Gemini Live native-audio voice companion.",
   "requestFramePermissions": [
     "microphone"
   ],

@@ -24,6 +24,7 @@ import {
   Shield,
   Radio,
   Clock,
+  HeartHandshake,
 } from 'lucide-react';
 import {
   VoiceConnectionState,
@@ -38,6 +39,7 @@ interface VoiceSessionScreenProps {
   conversationTitle: string;
   onClose: () => void;
   onEndSession?: () => void;
+  onOpenCrisisResources?: () => void;
 }
 
 export const VoiceSessionScreen: React.FC<VoiceSessionScreenProps> = ({
@@ -45,6 +47,7 @@ export const VoiceSessionScreen: React.FC<VoiceSessionScreenProps> = ({
   conversationTitle,
   onClose,
   onEndSession,
+  onOpenCrisisResources,
 }) => {
   const [connectionState, setConnectionState] = useState<VoiceConnectionState>('DISCONNECTED');
   const [isMuted, setIsMuted] = useState(false);
@@ -416,7 +419,18 @@ export const VoiceSessionScreen: React.FC<VoiceSessionScreenProps> = ({
           </div>
         </div>
 
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3">
+          {onOpenCrisisResources && (
+            <button
+              onClick={onOpenCrisisResources}
+              aria-label="Open Crisis Resources"
+              className="flex items-center gap-1.5 rounded-xl border border-rose-500/40 bg-rose-950/40 px-3 py-1.5 text-xs font-semibold text-rose-300 hover:bg-rose-900/60 transition"
+            >
+              <HeartHandshake className="h-3.5 w-3.5 text-rose-400" />
+              <span>Crisis Resources</span>
+            </button>
+          )}
+
           <div className="flex items-center gap-2 rounded-full border border-stone-800 bg-stone-900/80 px-3.5 py-1.5 text-xs text-stone-300">
             <Clock className="h-3.5 w-3.5 text-emerald-400" />
             <span className="font-mono">{formatTime(durationSeconds)}</span>
@@ -593,10 +607,12 @@ export const VoiceSessionScreen: React.FC<VoiceSessionScreenProps> = ({
           </button>
         </div>
 
-        {/* Ethical Voice Disclaimer */}
-        <div className="mt-4 text-center text-[11px] text-stone-500 flex items-center justify-center gap-1.5">
-          <Shield className="h-3 w-3 text-emerald-500/80" />
-          <span>No raw audio is stored on disk or shared. NIVA is an AI wellness companion, not a clinical doctor.</span>
+        {/* Ethical Voice & Safety Boundary Disclaimer */}
+        <div className="mt-4 text-center text-[11px] text-stone-400 max-w-xl mx-auto flex items-center justify-center gap-1.5 leading-relaxed">
+          <Shield className="h-3.5 w-3.5 shrink-0 text-emerald-400/80" />
+          <span>
+            AI-powered live audio is not monitored in real time by healthcare professionals. If in acute crisis or danger, tap Crisis Resources or call your local emergency services.
+          </span>
         </div>
       </footer>
     </div>

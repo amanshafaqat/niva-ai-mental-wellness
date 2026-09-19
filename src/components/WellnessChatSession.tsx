@@ -15,6 +15,8 @@ import {
   Heart,
   Volume2,
   Mic,
+  HeartHandshake,
+  AlertTriangle,
 } from 'lucide-react';
 import {
   ConversationSummaryDto,
@@ -26,7 +28,11 @@ import {
 } from '@shared/types/conversation';
 import { VoiceSessionScreen } from './VoiceSessionScreen';
 
-export const WellnessChatSession: React.FC = () => {
+interface WellnessChatSessionProps {
+  onOpenCrisisResources?: () => void;
+}
+
+export const WellnessChatSession: React.FC<WellnessChatSessionProps> = ({ onOpenCrisisResources }) => {
   const [conversations, setConversations] = useState<ConversationSummaryDto[]>([]);
   const [activeSession, setActiveSession] = useState<ConversationDetailDto | null>(null);
   const [inputText, setInputText] = useState('');
@@ -35,6 +41,7 @@ export const WellnessChatSession: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [showPreferences, setShowPreferences] = useState(false);
   const [showVoiceOverlay, setShowVoiceOverlay] = useState(false);
+  const [hasCrisisIntervention, setHasCrisisIntervention] = useState(false);
   const [preferences, setPreferences] = useState<UserPreferencesDto>({
     responseStyle: 'SHORT',
     conversationPreference: 'LISTEN_AND_RESPOND',
@@ -179,6 +186,9 @@ export const WellnessChatSession: React.FC = () => {
       }
 
       const data = await res.json();
+      if (data.safety && data.safety.isSafe === false) {
+        setHasCrisisIntervention(true);
+      }
       // Replace optimistic message and append real assistant message
       setActiveSession((prev) => {
         if (!prev) return prev;
@@ -282,6 +292,18 @@ export const WellnessChatSession: React.FC = () => {
         </div>
 
         <div className="flex flex-wrap items-center gap-2.5 w-full sm:w-auto">
+          {onOpenCrisisResources && (
+            <button
+              id="chat-action-crisis-resources-btn"
+              onClick={onOpenCrisisResources}
+              className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50 px-3.5 py-2.5 text-xs font-semibold text-rose-800 hover:bg-rose-100 transition shadow-xs"
+              title="View free, confidential crisis support directories"
+            >
+              <HeartHandshake className="h-4 w-4 text-rose-600" />
+              <span>Crisis Resources</span>
+            </button>
+          )}
+
           {activeSession && activeSession.status === 'ACTIVE' && (
             <button
               id="start-voice-session-button"
@@ -576,6 +598,26 @@ export const WellnessChatSession: React.FC = () => {
 
           {/* Chat Input Bar */}
           <div className="border-t border-stone-200 p-4 bg-white rounded-b-2xl">
+            {/* Compassionate Crisis Support Banner if Acute Distress is Detected */}
+            {hasCrisisIntervention && (
+              <div className="mb-3 rounded-xl border border-rose-200 bg-rose-50/95 p-3.5 text-xs text-rose-950 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 shadow-xs">
+                <div className="flex items-center gap-2">
+                  <AlertTriangle className="h-4 w-4 text-rose-600 shrink-0" />
+                  <span>
+                    <strong>Support is available:</strong> If you are experiencing overwhelming pain or thoughts of harm, compassionate and confidential human support is available 24/7.
+                  </span>
+                </div>
+                {onOpenCrisisResources && (
+                  <button
+                    onClick={onOpenCrisisResources}
+                    className="shrink-0 rounded-lg bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-rose-700 transition"
+                  >
+                    View Crisis Helplines
+                  </button>
+                )}
+              </div>
+            )}
+
             {activeSession?.status === 'ENDED' ? (
               <div className="p-3 bg-stone-50 rounded-xl border border-stone-200 text-center text-xs text-stone-600 flex items-center justify-center gap-2">
                 <StopCircle className="h-4 w-4 text-stone-400" />
@@ -630,6 +672,7 @@ export const WellnessChatSession: React.FC = () => {
             endCurrentSession();
             setShowVoiceOverlay(false);
           }}
+          onOpenCrisisResources={onOpenCrisisResources}
         />
       )}
     </div>

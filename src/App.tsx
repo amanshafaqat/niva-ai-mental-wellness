@@ -1,5 +1,5 @@
 /**
- * NIVA Mental Wellness Companion - Phase 4.1 Realtime Voice Engine
+ * NIVA Mental Wellness Companion - Phase 5 Advanced Safety & Crisis Response
  * Root Application Component
  */
 
@@ -13,25 +13,31 @@ import { ArchitectureViewer } from './components/ArchitectureViewer';
 import { SystemHealthWidget } from './components/SystemHealthWidget';
 import { GoogleSignInModal } from './components/GoogleSignInModal';
 import { DownloadZipModal } from './components/DownloadZipModal';
-import { Sparkles, Shield } from 'lucide-react';
+import { CrisisResourcesModal } from './components/CrisisResourcesModal';
+import { Sparkles, Shield, HeartHandshake } from 'lucide-react';
 
 export default function App() {
   const [activeView, setActiveView] = useState<'home' | 'dashboard' | 'architecture' | 'health'>('home');
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [zipModalOpen, setZipModalOpen] = useState(false);
+  const [crisisModalOpen, setCrisisModalOpen] = useState(false);
+
+  const handleOpenCrisisResources = () => setCrisisModalOpen(true);
+  const handleCloseCrisisResources = () => setCrisisModalOpen(false);
 
   return (
     <AuthProvider>
       <div id="niva-root-application" className="min-h-screen bg-[#FBFDFB] text-stone-800 flex flex-col font-sans selection:bg-emerald-100 selection:text-emerald-900">
-        {/* Ethical Non-Clinical Disclaimer Banner */}
-        <DisclaimerBanner />
+        {/* Ethical Non-Clinical Disclaimer Banner with Crisis Access */}
+        <DisclaimerBanner onOpenCrisisResources={handleOpenCrisisResources} />
 
-        {/* Global Navigation */}
+        {/* Global Navigation with Crisis Direct Button */}
         <Navbar
           activeView={activeView}
           setActiveView={setActiveView}
           onOpenAuthModal={() => setAuthModalOpen(true)}
           onOpenZipModal={() => setZipModalOpen(true)}
+          onOpenCrisisResources={handleOpenCrisisResources}
         />
 
         {/* Main View Router */}
@@ -50,7 +56,7 @@ export default function App() {
           )}
 
           {activeView === 'dashboard' && (
-            <DashboardView />
+            <DashboardView onOpenCrisisResources={handleOpenCrisisResources} />
           )}
 
           {activeView === 'architecture' && (
@@ -67,7 +73,7 @@ export default function App() {
           )}
         </main>
 
-        {/* Calm, Accessible Footer */}
+        {/* Calm, Accessible Footer with Crisis Directory Access */}
         <footer id="niva-footer" className="border-t border-stone-200 bg-white py-8 text-xs text-stone-600">
           <div className="mx-auto max-w-6xl px-4 sm:px-6 flex flex-col md:flex-row items-center justify-between gap-4">
             <div className="flex items-center gap-2">
@@ -75,10 +81,18 @@ export default function App() {
                 <Sparkles className="h-3.5 w-3.5" />
               </div>
               <span className="font-semibold text-stone-900">NIVA</span>
-              <span>— Someone to talk to. (Phase 4.1 Realtime Voice Engine)</span>
+              <span>— Someone to talk to. (Phase 5 Advanced Safety & Crisis Engine)</span>
             </div>
 
             <div className="flex items-center gap-6">
+              <button
+                id="footer-crisis-link"
+                onClick={handleOpenCrisisResources}
+                className="flex items-center gap-1.5 font-semibold text-rose-700 hover:text-rose-900 transition"
+              >
+                <HeartHandshake className="h-3.5 w-3.5" />
+                Verified Crisis Resources
+              </button>
               <span className="flex items-center gap-1 text-stone-500">
                 <Shield className="h-3.5 w-3.5 text-emerald-800" />
                 Zero-Knowledge Privacy Architecture
@@ -87,7 +101,7 @@ export default function App() {
                 onClick={() => setZipModalOpen(true)}
                 className="underline hover:text-stone-900 transition"
               >
-                Download Monorepo ZIP
+                Download Phase 5 ZIP
               </button>
             </div>
           </div>
@@ -103,6 +117,11 @@ export default function App() {
         <DownloadZipModal
           isOpen={zipModalOpen}
           onClose={() => setZipModalOpen(false)}
+        />
+
+        <CrisisResourcesModal
+          isOpen={crisisModalOpen}
+          onClose={handleCloseCrisisResources}
         />
       </div>
     </AuthProvider>
