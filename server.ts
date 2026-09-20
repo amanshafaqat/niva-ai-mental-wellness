@@ -27,7 +27,7 @@ import {
   setupVoiceWebSocketServer,
   getVoiceSessionsForUser,
 } from './src/services/voice-engine';
-import { isDatabaseConnected } from './src/lib/prisma';
+import { isDatabaseConnected, getPrismaClient } from './src/lib/prisma';
 import { UserPreferencesDto } from './shared/types/conversation';
 import {
   getCrisisResourcesForCountry,
@@ -67,26 +67,75 @@ const app = express();
 const PORT = 3000;
 const START_TIME = Date.now();
 
-app.use(express.json());
+// ==============================================================================
+// CYBERSECURITY HARDENING: SECURITY HEADERS & INPUT VALIDATION (PHASE 8)
+// ==============================================================================
+
+// Apply Helmet-grade security headers to all responses
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+  res.setHeader('X-XSS-Protection', '0');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  if (process.env.NODE_ENV === 'production') {
+    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  }
+  next();
+});
+
+app.use(express.json({ limit: '512kb' }));
 app.use(cookieParser());
 
-// Resilient in-memory state store
-const sessions = new Map<string, AuthSession>();
-const memoryUsers = new Map<string, any>();
-const auditLogs: AuditLogEntry[] = [
+// Auth & API Rate Limiting: in-memory IP tracker
+const authRateLimitMap = new Map<string, number[]>();
+const AUTH_RATE_WINDOW_MS = 60 * 1000;
+const MAX_AUTH_ATTEMPTS_PER_MIN = 30;
+
+function checkAuthRateLimit(ip: string): boolean {
+  const now = Date.now();
+  const timestamps = authRateLimitMap.get(ip) || [];
+  const valid = timestamps.filter((t) => now - t < AUTH_RATE_WINDOW_MS);
+  if (valid.length >= MAX_AUTH_ATTEMPTS_PER_MIN) {
+    authRateLimitMap.set(ip, valid);
+    return false;
+  }
+  valid.push(now);
+  authRateLimitMap.set(ip, valid);
+  return true;
+}
+
+// Input validation helpers
+export function isValidEmail(email: unknown): boolean {
+  if (typeof email !== 'string') return false;
+  const trimmed = email.trim();
+  if (trimmed.length > 254 || trimmed.length < 5) return false;
+  // Strict RFC-compliant email regex
+  const emailRegex = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$/;
+  return emailRegex.test(trimmed);
+}
+
+export function sanitizeInputString(val: unknown, maxLength = 255): string {
+  if (typeof val !== 'string') return '';
+  return val.trim().slice(0, maxLength);
+}
+
+// Resilient state stores
+export const sessions = new Map<string, AuthSession>();
+export const memoryUsers = new Map<string, any>();
+export const auditLogs: AuditLogEntry[] = [
   {
     id: 'audit-boot-001',
     action: AuditAction.ACCOUNT_CREATED,
     entityType: 'System',
     entityId: 'admin-system',
-    metadata: { note: 'NIVA Architecture Phase 2 initialized: Auth, User Identity & RBAC' },
+    metadata: { note: 'NIVA Cybersecurity Hardening Phase 8 & 9 initialized' },
     ipAddress: '127.0.0.1',
-    userAgent: 'NivaBootstrap/2.0',
+    userAgent: 'NivaBootstrap/8.0',
     timestamp: new Date().toISOString(),
   },
 ];
 
-function sanitizeMetadata(metadata?: Record<string, unknown>): Record<string, unknown> | undefined {
+export function sanitizeMetadata(metadata?: Record<string, unknown>): Record<string, unknown> | undefined {
   if (!metadata) return undefined;
   const sanitized = { ...metadata };
   const sensitiveKeys = [
@@ -104,6 +153,13 @@ function sanitizeMetadata(metadata?: Record<string, unknown>): Record<string, un
     'message',
     'conversation',
     'prompt',
+    'cookie',
+    'authorization',
+    'bearer',
+    'audio',
+    'transcript',
+    'recording',
+    'ssn',
   ];
 
   for (const key of Object.keys(sanitized)) {
@@ -115,25 +171,51 @@ function sanitizeMetadata(metadata?: Record<string, unknown>): Record<string, un
   return sanitized;
 }
 
-function logAuditEvent(
+export function logAuditEvent(
   action: AuditAction,
   userId?: string | null,
   entityType?: string,
   metadata?: Record<string, unknown>,
   req?: express.Request,
 ) {
+  const ipAddress = (req?.headers['x-forwarded-for'] as string) || req?.socket.remoteAddress || '127.0.0.1';
+  const userAgent = req?.headers['user-agent'] || 'Unknown';
+  const safeMetadata = sanitizeMetadata(metadata);
+
   const entry: AuditLogEntry = {
     id: `audit-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`,
     userId: userId || null,
     action,
     entityType,
-    metadata: sanitizeMetadata(metadata),
-    ipAddress: (req?.headers['x-forwarded-for'] as string) || req?.socket.remoteAddress || '127.0.0.1',
-    userAgent: req?.headers['user-agent'] || 'Unknown',
+    metadata: safeMetadata,
+    ipAddress,
+    userAgent,
     timestamp: new Date().toISOString(),
   };
   auditLogs.unshift(entry);
-  if (auditLogs.length > 300) auditLogs.pop();
+  if (auditLogs.length > 500) auditLogs.pop();
+
+  // Asynchronous persistent audit log storage into Prisma
+  isDatabaseConnected().then((isReady) => {
+    if (isReady) {
+      const prisma = getPrismaClient();
+      prisma.auditLog.create({
+        data: {
+          id: entry.id,
+          userId: entry.userId,
+          action: entry.action,
+          entityType: entry.entityType || null,
+          metadata: safeMetadata ? (safeMetadata as any) : undefined,
+          ipAddress: entry.ipAddress,
+          userAgent: entry.userAgent,
+          timestamp: new Date(entry.timestamp),
+        },
+      }).catch(() => {
+        // Silently preserve in-memory ledger if DB write encounters transient issue
+      });
+    }
+  }).catch(() => {});
+
   return entry;
 }
 
@@ -149,9 +231,10 @@ function getOAuthClient(redirectUriOverride?: string): OAuth2Client {
 }
 
 /**
- * Extracts session token from HttpOnly cookie first, then Bearer header
+ * Extracts and validates session token from HttpOnly cookie first, then Bearer header.
+ * Enforces session expiration and account status (immediately revokes suspended/deactivated users).
  */
-function getSessionFromRequest(req: express.Request): AuthSession | null {
+export function getSessionFromRequest(req: express.Request): AuthSession | null {
   let token: string | undefined = req.cookies?.niva_session;
 
   if (!token) {
@@ -165,8 +248,16 @@ function getSessionFromRequest(req: express.Request): AuthSession | null {
   const session = sessions.get(token);
   if (!session) return null;
 
+  // Enforce session expiration
   if (new Date(session.expiresAt) < new Date()) {
     sessions.delete(token);
+    return null;
+  }
+
+  // Enforce user account status governance
+  const user = memoryUsers.get(session.user.email) || session.user;
+  if (user && (user.status === 'SUSPENDED' || user.status === 'DEACTIVATED' || user.isActive === false)) {
+    sessions.delete(token); // Invalidate session immediately
     return null;
   }
 
@@ -490,6 +581,17 @@ app.get('/api/auth/google/callback', handleGoogleCallback);
 
 // Google Token / Credential Verification Endpoint
 const handleGoogleVerify = async (req: express.Request, res: express.Response) => {
+  const clientIp = (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || '127.0.0.1';
+  if (!checkAuthRateLimit(clientIp)) {
+    return res.status(429).json({
+      success: false,
+      statusCode: 429,
+      errorCode: 'RATE_LIMIT_EXCEEDED',
+      message: 'Too many authentication attempts. Please take a moment and try again.',
+      timestamp: new Date().toISOString(),
+    });
+  }
+
   const body = req.body;
   const idToken = body?.idToken || body?.credential;
 
@@ -497,6 +599,7 @@ const handleGoogleVerify = async (req: express.Request, res: express.Response) =
   let name: string = 'NIVA User';
   let picture: string | null = null;
   let sub: string;
+  let isCryptographicallyVerified = false;
 
   if (idToken && typeof idToken === 'string') {
     const clientId = process.env.GOOGLE_CLIENT_ID;
@@ -520,9 +623,10 @@ const handleGoogleVerify = async (req: express.Request, res: express.Response) =
         throw new Error('Missing verified claims');
       }
       email = payload.email.toLowerCase().trim();
-      name = payload.name || name;
+      name = sanitizeInputString(payload.name || name, 100);
       picture = payload.picture || null;
       sub = payload.sub;
+      isCryptographicallyVerified = true;
     } catch (err: any) {
       logAuditEvent(AuditAction.LOGIN_FAILURE, null, 'Token', { error: err.message }, req);
       return res.status(401).json({
@@ -533,10 +637,28 @@ const handleGoogleVerify = async (req: express.Request, res: express.Response) =
       });
     }
   } else if (body?.email && body?.sub) {
+    if (process.env.NODE_ENV === 'production') {
+      return res.status(401).json({
+        success: false,
+        statusCode: 401,
+        errorCode: 'UNVERIFIED_CREDENTIALS',
+        message: 'Cryptographically verified Google ID token is required in production.',
+        timestamp: new Date().toISOString(),
+      });
+    }
+    if (!isValidEmail(body.email)) {
+      return res.status(400).json({
+        success: false,
+        statusCode: 400,
+        errorCode: 'INVALID_INPUT',
+        message: 'Invalid email address format in authentication payload.',
+        timestamp: new Date().toISOString(),
+      });
+    }
     email = String(body.email).toLowerCase().trim();
-    name = body.name || name;
-    picture = body.picture || null;
-    sub = String(body.sub);
+    name = sanitizeInputString(body.name || name, 100);
+    picture = typeof body.picture === 'string' ? body.picture : null;
+    sub = sanitizeInputString(body.sub, 128);
   } else {
     return res.status(400).json({
       success: false,
@@ -549,10 +671,30 @@ const handleGoogleVerify = async (req: express.Request, res: express.Response) =
   const adminEmail = (process.env.INITIAL_ADMIN_EMAIL || 'admin@niva.internal')
     .toLowerCase()
     .trim();
+
   // Server-side governance: default to USER unless verified server admin email
   const assignedRole = email === adminEmail ? Role.ADMIN : Role.USER;
 
   let user = memoryUsers.get(email);
+
+  // Check if existing user account is suspended or deactivated
+  if (user && (user.status === 'SUSPENDED' || user.status === 'DEACTIVATED' || user.isActive === false)) {
+    logAuditEvent(
+      AuditAction.LOGIN_FAILURE,
+      user.id,
+      'User',
+      { reason: 'ACCOUNT_SUSPENDED', status: user.status },
+      req,
+    );
+    return res.status(403).json({
+      success: false,
+      statusCode: 403,
+      errorCode: 'ACCOUNT_SUSPENDED',
+      message: 'This account has been suspended or deactivated. Please contact an administrator.',
+      timestamp: new Date().toISOString(),
+    });
+  }
+
   let isNew = false;
   if (!user) {
     isNew = true;
@@ -601,6 +743,42 @@ const handleGoogleVerify = async (req: express.Request, res: express.Response) =
 
   sessions.set(sessionToken, session);
 
+  // Synchronize with database if connected
+  isDatabaseConnected().then((isReady) => {
+    if (isReady) {
+      const prisma = getPrismaClient();
+      prisma.user.upsert({
+        where: { email: user.email },
+        create: {
+          id: user.id,
+          email: user.email,
+          name: user.name,
+          avatarUrl: user.avatarUrl,
+          role: user.role,
+          status: user.status,
+          isActive: user.isActive,
+          createdAt: new Date(user.createdAt),
+          lastLoginAt: new Date(user.lastLoginAt),
+        },
+        update: {
+          name: user.name,
+          avatarUrl: user.avatarUrl,
+          lastLoginAt: new Date(user.lastLoginAt),
+        },
+      }).then(() => {
+        return prisma.session.create({
+          data: {
+            sessionToken,
+            userId: user.id,
+            expires: new Date(expiresAt),
+            ipAddress: clientIp,
+            userAgent: req.headers['user-agent'] || 'Unknown',
+          },
+        });
+      }).catch(() => {});
+    }
+  }).catch(() => {});
+
   // Set secure HttpOnly cookie
   res.cookie('niva_session', sessionToken, {
     httpOnly: true,
@@ -614,7 +792,7 @@ const handleGoogleVerify = async (req: express.Request, res: express.Response) =
     AuditAction.LOGIN_SUCCESS,
     user.id,
     'Session',
-    { provider: 'google', isNewUser: isNew, role: user.role },
+    { provider: 'google', isNewUser: isNew, role: user.role, verifiedToken: isCryptographicallyVerified },
     req,
   );
 
@@ -672,6 +850,17 @@ const handleLogout = (req: express.Request, res: express.Response) => {
   if (token) {
     const session = sessions.get(token);
     sessions.delete(token);
+
+    // Delete session from Prisma if connected
+    isDatabaseConnected().then((isReady) => {
+      if (isReady) {
+        const prisma = getPrismaClient();
+        prisma.session.deleteMany({
+          where: { sessionToken: token },
+        }).catch(() => {});
+      }
+    }).catch(() => {});
+
     if (session) {
       logAuditEvent(AuditAction.LOGOUT, session.user.id, 'Session', undefined, req);
     }
@@ -1024,6 +1213,21 @@ app.patch('/api/admin/users/:userId/status', requireAdmin, async (req, res) => {
   try {
     const updated = await updateAdminUserStatus(userId, status, session.user.id, memoryUsers);
 
+    // CYBERSECURITY HARDENING: Immediate session revocation for suspended/deactivated users
+    if (status === 'SUSPENDED' || status === 'DEACTIVATED') {
+      for (const [token, s] of sessions.entries()) {
+        if (s.user.id === userId) {
+          sessions.delete(token);
+        }
+      }
+      isDatabaseConnected().then((isReady) => {
+        if (isReady) {
+          const prisma = getPrismaClient();
+          prisma.session.deleteMany({ where: { userId } }).catch(() => {});
+        }
+      }).catch(() => {});
+    }
+
     logAuditEvent(
       AuditAction.ADMIN_USER_STATUS_UPDATED,
       session.user.id,
@@ -1066,6 +1270,13 @@ app.patch('/api/admin/users/:userId/role', requireAdmin, async (req, res) => {
 
   try {
     const updated = await updateAdminUserRole(userId, role as Role, session.user.id, memoryUsers);
+
+    // Sync updated role to active sessions for this user
+    for (const [token, s] of sessions.entries()) {
+      if (s.user.id === userId) {
+        s.user.role = role as Role;
+      }
+    }
 
     logAuditEvent(
       AuditAction.ADMIN_USER_ROLE_UPDATED,
@@ -1193,7 +1404,8 @@ const handleStartConversation = (req: express.Request, res: express.Response) =>
     });
   }
 
-  const title = (req.body?.title as string)?.trim() || `Session ${new Date().toLocaleDateString()}`;
+  const rawTitle = (req.body?.title as string)?.trim();
+  const title = sanitizeInputString(rawTitle || `Session ${new Date().toLocaleDateString()}`, 120);
   const id = `conv-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
   const now = new Date().toISOString();
 
@@ -1396,6 +1608,15 @@ const handlePostConversationMessage = async (req: express.Request, res: express.
       success: false,
       statusCode: 400,
       message: 'Message content cannot be empty',
+    });
+  }
+
+  if (content.length > 4000) {
+    return res.status(400).json({
+      success: false,
+      statusCode: 400,
+      errorCode: 'CONTENT_TOO_LONG',
+      message: 'Message content exceeds maximum allowed length of 4000 characters.',
     });
   }
 
@@ -2157,14 +2378,16 @@ app.post('/api/wellness/check-in', (req, res) => {
     });
   }
 
-  const mood = (req.body?.mood as string)?.trim();
-  if (!mood) {
+  const rawMood = (req.body?.mood as string)?.trim();
+  if (!rawMood) {
     return res.status(400).json({
       success: false,
       statusCode: 400,
       message: 'Mood value is required.',
     });
   }
+
+  const mood = sanitizeInputString(rawMood, 50);
 
   const checkIn = recordVoluntaryCheckIn(session.user.id, mood);
   res.status(201).json({
@@ -2180,7 +2403,7 @@ app.get('/api/download-zip', async (req, res) => {
   try {
     const zipBuffer = await generateProjectZipBuffer(process.cwd());
     res.setHeader('Content-Type', 'application/zip');
-    res.setHeader('Content-Disposition', 'attachment; filename="niva-phase-7.zip"');
+    res.setHeader('Content-Disposition', 'attachment; filename="niva-phase-9-final.zip"');
     res.setHeader('Content-Length', zipBuffer.length.toString());
     res.send(zipBuffer);
   } catch (error: any) {
@@ -2229,4 +2452,10 @@ async function startServer() {
   });
 }
 
-startServer();
+const isMain =
+  Boolean(process.argv[1]) &&
+  (process.argv[1].endsWith('server.ts') || process.argv[1].endsWith('server.cjs'));
+
+if (isMain || process.env.RUN_SERVER === 'true') {
+  startServer();
+}

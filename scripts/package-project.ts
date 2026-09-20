@@ -1,6 +1,6 @@
 /**
- * NIVA Phase 4.1 Final Project Packager
- * Generates clean, production-ready niva-phase-4.1-final.zip archive
+ * NIVA Phase 9 Final Project Packager
+ * Generates clean, production-ready niva-phase-9-final.zip archive
  * Excludes: node_modules, build artifacts, git internals, and secrets.
  */
 
@@ -31,6 +31,8 @@ const EXCLUDED_FILES = new Set([
   'niva-phase-5-final.zip',
   'niva-phase-6.zip',
   'niva-phase-7.zip',
+  'niva-phase-8.zip',
+  'niva-phase-9-final.zip',
 ]);
 
 function shouldInclude(filePath: string, relativePath: string): boolean {
@@ -76,11 +78,13 @@ export async function generateProjectZipBuffer(rootDir = process.cwd()): Promise
 }
 
 async function main() {
-  console.log('📦 Packaging NIVA Phase 7 Admin System Monorepo...');
+  console.log('📦 Packaging NIVA Phase 9 Final Monorepo...');
   const buffer = await generateProjectZipBuffer(process.cwd());
-  const outputPath = path.join(process.cwd(), 'niva-phase-7.zip');
+  const outputPath = path.join(process.cwd(), 'niva-phase-9-final.zip');
   fs.writeFileSync(outputPath, buffer);
   // Also write backward-compatible archives
+  fs.writeFileSync(path.join(process.cwd(), 'niva-phase-8.zip'), buffer);
+  fs.writeFileSync(path.join(process.cwd(), 'niva-phase-7.zip'), buffer);
   fs.writeFileSync(path.join(process.cwd(), 'niva-phase-6.zip'), buffer);
   fs.writeFileSync(path.join(process.cwd(), 'niva-phase-5-final.zip'), buffer);
   console.log(`✅ Package generated successfully at: ${outputPath} (${(buffer.length / 1024).toFixed(1)} KB)`);
