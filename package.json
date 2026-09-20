@@ -10,8 +10,9 @@
     "package": "tsx scripts/package-project.ts",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",
-    "test": "tsx tests/phase-4.1.test.ts && tsx tests/phase-5.test.ts && tsx tests/phase-6.test.ts",
+    "test": "tsx tests/phase-4.1.test.ts && tsx tests/phase-5.test.ts && tsx tests/phase-6.test.ts && tsx tests/phase-7.test.ts",
     "test:phase-6": "tsx tests/phase-6.test.ts",
+    "test:phase-7": "tsx tests/phase-7.test.ts",
     "contract:emit": "prisma contract emit"
   },
   "dependencies": {

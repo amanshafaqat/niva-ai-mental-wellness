@@ -54,6 +54,14 @@ import {
   recordVoluntaryCheckIn,
   memoryVoluntaryCheckIns,
 } from './src/services/guardian/guardian-service';
+import {
+  getAdminUsersList,
+  getAdminUserDetail,
+  updateAdminUserStatus,
+  updateAdminUserRole,
+  getAdminSystemStats,
+  queryAdminAuditLogs,
+} from './src/services/admin/admin-service';
 
 const app = express();
 const PORT = 3000;
@@ -180,7 +188,7 @@ const getHealthResponse = async () => {
   return {
     status: isDegraded ? ('degraded' as const) : ('ok' as const),
     service: 'niva-backend',
-    phase: 'Phase 6 - Guardian System',
+    phase: 'Phase 7 - Admin System',
     timestamp: new Date().toISOString(),
     uptimeSeconds: Math.floor((Date.now() - START_TIME) / 1000),
     environment: process.env.NODE_ENV || 'development',
@@ -190,6 +198,7 @@ const getHealthResponse = async () => {
     },
     features: {
       rbacEnabled: true,
+      adminSystemEnabled: true,
       googleAuthReady: googleReady,
       googleClientIdConfigured: googleReady,
       aiProviderReady: geminiReady,
@@ -796,8 +805,126 @@ const handleGuardianSummary = (req: express.Request, res: express.Response) => {
 app.get('/users/guardian/summary', handleGuardianSummary);
 app.get('/api/users/guardian/summary', handleGuardianSummary);
 
-// Admin directory endpoint: strictly requires ADMIN role
-const handleAdminDirectory = (req: express.Request, res: express.Response) => {
+// ==============================================================================
+// 3.5 PHASE 7: ADMIN SYSTEM ENDPOINTS (Strictly Requires Role.ADMIN)
+// ==============================================================================
+
+/**
+ * Middleware: Enforce Role.ADMIN
+ */
+function requireAdmin(req: express.Request, res: express.Response, next: express.NextFunction) {
+  const session = getSessionFromRequest(req);
+  if (!session) {
+    return res.status(401).json({
+      success: false,
+      statusCode: 401,
+      errorCode: 'UNAUTHORIZED',
+      message: 'Authentication required for administrative access.',
+      timestamp: new Date().toISOString(),
+    });
+  }
+
+  if (session.user.role !== Role.ADMIN) {
+    logAuditEvent(
+      AuditAction.ADMIN_ACCESS_DENIED,
+      session.user.id,
+      'AdminEndpoint',
+      {
+        path: req.originalUrl || req.path,
+        method: req.method,
+        attemptedRole: session.user.role,
+        reason: 'INSUFFICIENT_PRIVILEGES_REQUIRES_ADMIN',
+      },
+      req,
+    );
+    return res.status(403).json({
+      success: false,
+      statusCode: 403,
+      errorCode: 'FORBIDDEN',
+      message: `Access denied. Administrative access requires Role.ADMIN. Your active role is ${session.user.role}.`,
+      timestamp: new Date().toISOString(),
+    });
+  }
+
+  (req as any).adminSession = session;
+  next();
+}
+
+/**
+ * GET /api/admin/health
+ * Detailed administrative platform health & diagnostic check (no secret key leakage)
+ */
+app.get('/api/admin/health', requireAdmin, async (req, res) => {
+  const dbConnected = await isDatabaseConnected();
+  const apiKey = process.env.GEMINI_API_KEY;
+  const geminiReady = Boolean(apiKey && apiKey !== 'MY_GEMINI_API_KEY' && apiKey.trim().length > 0);
+  const clientId = process.env.GOOGLE_CLIENT_ID;
+  const googleReady = Boolean(clientId && !clientId.includes('your-google-client-id') && clientId.trim().length > 0);
+  const isDegraded = !dbConnected || !geminiReady;
+
+  res.json({
+    status: isDegraded ? 'degraded' : 'ok',
+    timestamp: new Date().toISOString(),
+    uptimeSeconds: Math.floor((Date.now() - START_TIME) / 1000),
+    environment: process.env.NODE_ENV || 'development',
+    version: '7.0.0-phase7',
+    database: {
+      connected: dbConnected,
+      provider: 'PostgreSQL (Prisma ORM)',
+    },
+    security: {
+      rbacEnforced: true,
+      httpOnlyCookies: true,
+      auditTrailActive: true,
+      privacyBoundariesEnforced: true,
+    },
+    features: {
+      googleOAuth: googleReady,
+      geminiLiveVoice: geminiReady,
+      guardianNetwork: true,
+      safetyCrisisResponse: true,
+    },
+  });
+});
+
+/**
+ * GET /api/admin/stats
+ * Platform operational metrics & telemetry
+ */
+app.get('/api/admin/stats', requireAdmin, async (req, res) => {
+  const allMemoryUsers = Array.from(memoryUsers.values());
+  const stats = await getAdminSystemStats(allMemoryUsers, auditLogs.length, START_TIME);
+  res.json({
+    success: true,
+    stats,
+  });
+});
+
+/**
+ * GET /api/admin/users
+ * Paginated user directory with search and role/status filtering
+ * Strict security boundary: NO passwords, tokens, or OAuth secrets returned.
+ */
+app.get('/api/admin/users', requireAdmin, async (req, res) => {
+  const { search, role, status, page, limit } = req.query;
+  const allMemoryUsers = Array.from(memoryUsers.values());
+  const result = await getAdminUsersList(
+    {
+      search: search as string,
+      role: role as string,
+      status: status as string,
+      page: page ? Number(page) : 1,
+      limit: limit ? Number(limit) : 20,
+    },
+    allMemoryUsers,
+  );
+  res.json(result);
+});
+
+/**
+ * Legacy Admin Directory (backward compatibility for Phase 2/3 tests and UI)
+ */
+const handleAdminDirectory = async (req: express.Request, res: express.Response) => {
   const session = getSessionFromRequest(req);
   if (!session) {
     return res.status(401).json({
@@ -825,23 +952,16 @@ const handleAdminDirectory = (req: express.Request, res: express.Response) => {
     });
   }
 
-  const allUsers = Array.from(memoryUsers.values()).map((u) => ({
-    id: u.id,
-    email: u.email,
-    name: u.name,
-    role: u.role,
-    status: u.status,
-    isActive: u.isActive,
-    createdAt: u.createdAt,
-    lastLoginAt: u.lastLoginAt,
-  }));
+  const allMemoryUsers = Array.from(memoryUsers.values());
+  const result = await getAdminUsersList({ limit: 100 }, allMemoryUsers);
 
-  if (allUsers.length === 0) {
-    allUsers.push({
+  if (result.users.length === 0) {
+    result.users.push({
       id: session.user.id,
       email: session.user.email,
       name: session.user.name,
-      role: session.user.role,
+      avatarUrl: session.user.avatarUrl,
+      role: session.user.role as Role,
       status: 'ACTIVE',
       isActive: true,
       createdAt: session.user.createdAt || new Date().toISOString(),
@@ -850,16 +970,159 @@ const handleAdminDirectory = (req: express.Request, res: express.Response) => {
   }
 
   res.json({
-    totalUsers: allUsers.length,
-    users: allUsers,
+    totalUsers: result.total || result.users.length,
+    users: result.users,
   });
 };
 
 app.get('/users/admin/directory', handleAdminDirectory);
 app.get('/api/users/admin/directory', handleAdminDirectory);
 
-// Audit log endpoint: strictly requires ADMIN role
-const handleAuditLogs = (req: express.Request, res: express.Response) => {
+/**
+ * GET /api/admin/users/:userId
+ * Detailed user inspect view with high-level activity telemetry
+ * PRIVACY GUARANTEE: Conversation messages, audio recordings, transcripts, and crisis scores are EXCLUDED.
+ */
+app.get('/api/admin/users/:userId', requireAdmin, async (req, res) => {
+  const { userId } = req.params;
+  const allMemoryUsers = Array.from(memoryUsers.values());
+  const userDetail = await getAdminUserDetail(userId, allMemoryUsers);
+
+  if (!userDetail) {
+    return res.status(404).json({
+      success: false,
+      statusCode: 404,
+      message: `User with ID '${userId}' not found.`,
+    });
+  }
+
+  res.json({
+    success: true,
+    user: userDetail.user,
+    stats: userDetail.stats,
+    privacyNotice: 'Under NIVA strict privacy architecture, conversation transcripts, voice audio, and crisis analysis are inaccessible to administrators.',
+  });
+});
+
+/**
+ * PATCH /api/admin/users/:userId/status
+ * Administrative suspension or activation of a user account
+ */
+app.patch('/api/admin/users/:userId/status', requireAdmin, async (req, res) => {
+  const session = (req as any).adminSession as AuthSession;
+  const { userId } = req.params;
+  const { status } = req.body || {};
+
+  if (!status) {
+    return res.status(400).json({
+      success: false,
+      statusCode: 400,
+      message: 'Account status is required (ACTIVE, SUSPENDED, DEACTIVATED).',
+    });
+  }
+
+  try {
+    const updated = await updateAdminUserStatus(userId, status, session.user.id, memoryUsers);
+
+    logAuditEvent(
+      AuditAction.ADMIN_USER_STATUS_UPDATED,
+      session.user.id,
+      'UserAccount',
+      { targetUserId: userId, newStatus: status },
+      req,
+    );
+
+    res.json({
+      success: true,
+      user: updated,
+      message: `User account status updated to ${status}.`,
+    });
+  } catch (err: any) {
+    res.status(400).json({
+      success: false,
+      statusCode: 400,
+      message: err.message || 'Failed to update user account status',
+    });
+  }
+});
+
+/**
+ * PATCH /api/admin/users/:userId/role
+ * Administrative role assignment (USER, GUARDIAN, ADMIN)
+ * Security rule: Prevents self-demotion / self-stripping of admin role.
+ */
+app.patch('/api/admin/users/:userId/role', requireAdmin, async (req, res) => {
+  const session = (req as any).adminSession as AuthSession;
+  const { userId } = req.params;
+  const { role } = req.body || {};
+
+  if (!role) {
+    return res.status(400).json({
+      success: false,
+      statusCode: 400,
+      message: 'Role is required (USER, GUARDIAN, ADMIN).',
+    });
+  }
+
+  try {
+    const updated = await updateAdminUserRole(userId, role as Role, session.user.id, memoryUsers);
+
+    logAuditEvent(
+      AuditAction.ADMIN_USER_ROLE_UPDATED,
+      session.user.id,
+      'UserRole',
+      { targetUserId: userId, newRole: role },
+      req,
+    );
+
+    res.json({
+      success: true,
+      user: updated,
+      message: `User role successfully assigned to ${role}.`,
+    });
+  } catch (err: any) {
+    logAuditEvent(
+      AuditAction.ADMIN_ROLE_CHANGE_REJECTED,
+      session.user.id,
+      'UserRole',
+      { targetUserId: userId, attemptedRole: role, error: err.message },
+      req,
+    );
+    res.status(400).json({
+      success: false,
+      statusCode: 400,
+      message: err.message || 'Failed to update user role',
+    });
+  }
+});
+
+/**
+ * GET /api/admin/audit
+ * Administrative audit log query with filtering by action, user, and search term
+ */
+app.get('/api/admin/audit', requireAdmin, async (req, res) => {
+  const { action, userId, search, limit } = req.query;
+  const result = await queryAdminAuditLogs(
+    {
+      action: action as string,
+      userId: userId as string,
+      search: search as string,
+      limit: limit ? Number(limit) : 50,
+    },
+    auditLogs,
+  );
+
+  res.json({
+    success: true,
+    logs: result.logs,
+    total: result.total,
+  });
+});
+
+/**
+ * Legacy Audit Log Endpoint (backward compatibility for Phase 2/3 tests and UI)
+ */
+const handleAuditLogs = async (req: express.Request, res: express.Response) => {
   const session = getSessionFromRequest(req);
   if (!session) {
     return res.status(401).json({
@@ -888,14 +1151,17 @@ const handleAuditLogs = (req: express.Request, res: express.Response) => {
   }
 
   const limit = parseInt(req.query.limit as string, 10) || 50;
+  const result = await queryAdminAuditLogs({ limit }, auditLogs);
+
   res.json({
-    logs: auditLogs.slice(0, limit),
-    total: auditLogs.length,
+    logs: result.logs,
+    total: result.total,
   });
 };
 
 app.get('/audit/logs', handleAuditLogs);
 app.get('/api/audit/logs', handleAuditLogs);
+
 
 // ==============================================================================
 // 4. PHASE 3: CONVERSATIONS & WELLNESS SESSIONS ENDPOINTS
@@ -1914,7 +2180,7 @@ app.get('/api/download-zip', async (req, res) => {
   try {
     const zipBuffer = await generateProjectZipBuffer(process.cwd());
     res.setHeader('Content-Type', 'application/zip');
-    res.setHeader('Content-Disposition', 'attachment; filename="niva-phase-6.zip"');
+    res.setHeader('Content-Disposition', 'attachment; filename="niva-phase-7.zip"');
     res.setHeader('Content-Length', zipBuffer.length.toString());
     res.send(zipBuffer);
   } catch (error: any) {

@@ -11,12 +11,14 @@ import {
   AlertCircle,
   EyeOff,
   HeartHandshake,
+  ShieldAlert,
 } from 'lucide-react';
 import { useAuth } from '../lib/auth-context';
 import { RoleTester } from './RoleTester';
 import { AuditLogViewer } from './AuditLogViewer';
 import { WellnessChatSession } from './WellnessChatSession';
 import { GuardianSystemView } from './GuardianSystemView';
+import { AdminPanel } from './AdminPanel';
 import { Role, ROLE_PERMISSIONS } from '@shared/constants/roles';
 
 interface DashboardViewProps {
@@ -25,7 +27,7 @@ interface DashboardViewProps {
 
 export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenCrisisResources }) => {
   const { session } = useAuth();
-  const [activeTab, setActiveTab] = useState<'session' | 'guardians' | 'profile' | 'rbac' | 'audit' | 'privacy'>('session');
+  const [activeTab, setActiveTab] = useState<'session' | 'guardians' | 'admin' | 'profile' | 'rbac' | 'audit' | 'privacy'>('session');
 
   if (!session) {
     return (
@@ -153,6 +155,22 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenCrisisResour
             <HeartHandshake className="h-4 w-4" />
             <span>Guardian Network</span>
           </button>
+          {user.role === Role.ADMIN && (
+            <button
+              onClick={() => setActiveTab('admin')}
+              className={`flex items-center gap-2 border-b-2 px-4 py-2.5 text-sm font-medium transition ${
+                activeTab === 'admin'
+                  ? 'border-emerald-700 text-emerald-800 font-semibold'
+                  : 'border-transparent text-stone-700 hover:text-stone-900'
+              }`}
+            >
+              <ShieldAlert className="h-4 w-4 text-emerald-800" />
+              <span>Admin Console</span>
+              <span className="rounded bg-emerald-100 px-1 py-0.2 text-[9px] font-mono font-bold text-emerald-800">
+                Phase 7
+              </span>
+            </button>
+          )}
           <button
             onClick={() => setActiveTab('profile')}
             className={`flex items-center gap-2 border-b-2 px-4 py-2.5 text-sm font-medium transition ${
@@ -204,6 +222,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenCrisisResour
           {activeTab === 'session' && <WellnessChatSession onOpenCrisisResources={onOpenCrisisResources} />}
 
           {activeTab === 'guardians' && <GuardianSystemView />}
+
+          {activeTab === 'admin' && <AdminPanel />}
 
           {activeTab === 'profile' && (
             <div className="space-y-6">

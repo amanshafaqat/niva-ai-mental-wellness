@@ -53,10 +53,11 @@ model User {
   // Phase 4: Realtime Voice Sessions
   voiceSessions    VoiceSession[]
 
-  // Phase 6: Guardian System
+  // Phase 6: Guardian System & Voluntary Check-Ins
   wardRelationships      GuardianRelationship[] @relation("UserWards")
   guardianRelationships  GuardianRelationship[] @relation("GuardianRelationships")
   guardianNotifications  GuardianNotification[]
+  voluntaryCheckIns      VoluntaryWellnessCheckIn[]
 
   @@index([email])
   @@index([role])
@@ -273,5 +274,21 @@ model GuardianNotification {
   @@index([userId, isRead])
   @@index([createdAt])
   @@map("guardian_notifications")
+}
+
+// ------------------------------------------------------------------------------
+// Voluntary Wellness Check-In Model (Phase 6 / Phase 7 Persistence)
+// ------------------------------------------------------------------------------
+model VoluntaryWellnessCheckIn {
+  id         String   @id @default(uuid())
+  userId     String
+  mood       String   // e.g. "Peaceful", "Calm", "Reflective", "Anxious", "Stressed" (self-reported, never clinical AI diagnosis)
+  recordedAt DateTime @default(now())
+
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([userId, recordedAt])
+  @@map("voluntary_wellness_checkins")
 }
 

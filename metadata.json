@@ -1,6 +1,6 @@
 {
   "name": "NIVA - AI Mental Wellness Companion",
-  "description": "Privacy-conscious AI mental wellness companion (Phase 6): Consent-driven guardian system, zero-surveillance oversight, cryptographic invitations, granular opt-in sharing, advanced safety & crisis response, and Gemini Live native-audio voice companion.",
+  "description": "Privacy-conscious AI mental wellness companion (Phase 7): Governed administrative panel, user lifecycle management, tamper-evident audit logging, system telemetry, consent-driven guardian system, advanced safety & crisis response, and Gemini Live voice companion.",
   "requestFramePermissions": [
     "microphone"
   ],

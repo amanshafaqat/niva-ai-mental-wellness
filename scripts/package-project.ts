@@ -29,6 +29,8 @@ const EXCLUDED_FILES = new Set([
   'niva-phase-4.1-final.zip',
   'niva-phase-5.zip',
   'niva-phase-5-final.zip',
+  'niva-phase-6.zip',
+  'niva-phase-7.zip',
 ]);
 
 function shouldInclude(filePath: string, relativePath: string): boolean {
@@ -74,11 +76,12 @@ export async function generateProjectZipBuffer(rootDir = process.cwd()): Promise
 }
 
 async function main() {
-  console.log('📦 Packaging NIVA Phase 6 Guardian System Monorepo...');
+  console.log('📦 Packaging NIVA Phase 7 Admin System Monorepo...');
   const buffer = await generateProjectZipBuffer(process.cwd());
-  const outputPath = path.join(process.cwd(), 'niva-phase-6.zip');
+  const outputPath = path.join(process.cwd(), 'niva-phase-7.zip');
   fs.writeFileSync(outputPath, buffer);
-  // Also write legacy archives for backward compatibility
+  // Also write backward-compatible archives
+  fs.writeFileSync(path.join(process.cwd(), 'niva-phase-6.zip'), buffer);
   fs.writeFileSync(path.join(process.cwd(), 'niva-phase-5-final.zip'), buffer);
   console.log(`✅ Package generated successfully at: ${outputPath} (${(buffer.length / 1024).toFixed(1)} KB)`);
 }
