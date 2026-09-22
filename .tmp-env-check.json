@@ -1,0 +1,8 @@
+{
+  "JWT_EXPIRES_IN": true,
+  "CORS_ORIGIN": true,
+  "GOOGLE_CLIENT_SECRET": true,
+  "GOOGLE_CLIENT_ID": true,
+  "GOOGLE_CALLBACK_URL": true,
+  "INITIAL_ADMIN_EMAIL": true
+}
